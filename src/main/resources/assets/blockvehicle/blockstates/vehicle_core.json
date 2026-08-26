@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "activated=false": { "model": "blockvehicle:block/vehicle_core" },
+    "activated=true":  { "model": "blockvehicle:block/vehicle_core_active" }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "blockvehicle:block/driver_seat" },
+    "facing=south": { "model": "blockvehicle:block/driver_seat", "y": 180 },
+    "facing=east":  { "model": "blockvehicle:block/driver_seat", "y": 90 },
+    "facing=west":  { "model": "blockvehicle:block/driver_seat", "y": 270 }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "blockvehicle:block/passenger_seat",
+    "down":     "blockvehicle:block/passenger_seat",
+    "up":       "blockvehicle:block/passenger_seat_top",
+    "north":    "blockvehicle:block/passenger_seat",
+    "south":    "blockvehicle:block/passenger_seat",
+    "east":     "blockvehicle:block/passenger_seat",
+    "west":     "blockvehicle:block/passenger_seat"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to":   [16, 8, 16],
+      "faces": {
+        "down":  { "texture": "#down",  "cullface": "down" },
+        "up":    { "texture": "#up"   },
+        "north": { "texture": "#north", "cullface": "north" },
+        "south": { "texture": "#south", "cullface": "south" },
+        "east":  { "texture": "#east",  "cullface": "east"  },
+        "west":  { "texture": "#west",  "cullface": "west"  }
+      }
+    },
+    {
+      "from": [0, 8, 10],
+      "to":   [16, 16, 16],
+      "faces": {
+        "north": { "texture": "#north" },
+        "south": { "texture": "#south", "cullface": "south" },
+        "east":  { "texture": "#east"  },
+        "west":  { "texture": "#west"  },
+        "up":    { "texture": "#up",   "cullface": "up"    }
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "blockvehicle:block/vehicle_core_active"
+  }
+}

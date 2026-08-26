@@ -1,0 +1,92 @@
+{
+  "engine_idle": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.engine_idle",
+    "sounds": [
+      {
+        "name": "blockvehicle:engine_idle",
+        "stream": false
+      }
+    ]
+  },
+  "engine_rev": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.engine_rev",
+    "sounds": [
+      {
+        "name": "blockvehicle:engine_rev",
+        "stream": false
+      }
+    ]
+  },
+  "engine_start": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.engine_start",
+    "sounds": [
+      {
+        "name": "blockvehicle:engine_start",
+        "stream": false
+      }
+    ]
+  },
+  "engine_stop": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.engine_stop",
+    "sounds": [
+      {
+        "name": "blockvehicle:engine_stop",
+        "stream": false
+      }
+    ]
+  },
+  "car_horn": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.car_horn",
+    "sounds": [
+      {
+        "name": "blockvehicle:car_horn",
+        "stream": false
+      }
+    ]
+  },
+  "tire_skid": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.tire_skid",
+    "sounds": [
+      {
+        "name": "blockvehicle:tire_skid",
+        "stream": false
+      }
+    ]
+  },
+  "car_impact": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.car_impact",
+    "sounds": [
+      {
+        "name": "blockvehicle:car_impact",
+        "stream": false
+      }
+    ]
+  },
+  "car_door_close": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.car_door_close",
+    "sounds": [
+      {
+        "name": "blockvehicle:car_door_close",
+        "stream": false
+      }
+    ]
+  },
+  "car_door_open": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.car_door_open",
+    "sounds": [
+      {
+        "name": "blockvehicle:car_door_open",
+        "stream": false
+      }
+    ]
+  }
+}

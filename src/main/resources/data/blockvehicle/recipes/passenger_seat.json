@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "GGG",
+    "IBI",
+    "III"
+  ],
+  "key": {
+    "G": { "item": "minecraft:gray_wool" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "B": { "item": "minecraft:iron_bars" }
+  },
+  "result": {
+    "id": "blockvehicle:passenger_seat",
+    "count": 2
+  }
+}

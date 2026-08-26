@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "blockvehicle",
+  "version": "1.0.0",
+  "name": "Block Vehicle",
+  "description": "Turn any Minecraft block build into a drivable vehicle with arcade physics.",
+  "authors": [
+    "BlockVehicle"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/blockvehicle/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.blockvehicle.BlockVehicleMod"
+    ],
+    "client": [
+      "com.blockvehicle.client.BlockVehicleClient"
+    ]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.16.14",
+    "fabric-api": "*",
+    "minecraft": "~1.21.4"
+  }
+}

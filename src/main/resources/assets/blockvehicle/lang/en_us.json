@@ -1,0 +1,20 @@
+{
+  "item.blockvehicle.vehicle_wand": "Vehicle Wand",
+  "block.blockvehicle.vehicle_core": "Vehicle Core",
+  "block.blockvehicle.driver_seat": "Driver Seat",
+  "block.blockvehicle.passenger_seat": "Passenger Seat",
+  "entity.blockvehicle.vehicle": "Vehicle",
+
+  "key.blockvehicle.horn": "Vehicle Horn",
+  "category.blockvehicle": "Block Vehicle",
+
+  "subtitles.blockvehicle.engine_idle": "Engine idles",
+  "subtitles.blockvehicle.engine_rev": "Engine revs",
+  "subtitles.blockvehicle.engine_start": "Engine starts",
+  "subtitles.blockvehicle.engine_stop": "Engine stops",
+  "subtitles.blockvehicle.car_horn": "Car horn honks",
+  "subtitles.blockvehicle.tire_skid": "Tires screech",
+  "subtitles.blockvehicle.car_impact": "Vehicle crashes",
+  "subtitles.blockvehicle.car_door_close": "Car door closes",
+  "subtitles.blockvehicle.car_door_open": "Car door opens"
+}

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "GRG",
+    "RDR",
+    "GRG"
+  ],
+  "key": {
+    "G": { "item": "minecraft:gold_ingot" },
+    "R": { "item": "minecraft:redstone" },
+    "D": { "item": "minecraft:diamond" }
+  },
+  "result": {
+    "id": "blockvehicle:vehicle_core",
+    "count": 1
+  }
+}
