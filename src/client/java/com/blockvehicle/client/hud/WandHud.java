@@ -108,6 +108,8 @@ public final class WandHud {
             context.drawText(tr, (Text)Text.literal("\u00a7e\u25cb Select C1 & C2 to build"), cardX + 14, rowY + 3, -19712, true);
         }
         context.drawText(tr, (Text)Text.literal("\u00a78[Sneak+R-Click] Mode  [R-Click] Action"), cardX + 8, rowY += 18, -7035976, false);
+        if (ready) {
+            context.drawText(tr, Text.literal("\u00a78[/vehiclepreset save <name>] Save"), cardX + 8, rowY + 12, -7035976, false);
+        }
     }
 }
-

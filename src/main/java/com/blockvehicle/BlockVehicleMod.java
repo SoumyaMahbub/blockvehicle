@@ -4,6 +4,7 @@ import com.blockvehicle.ModBlocks;
 import com.blockvehicle.ModEntities;
 import com.blockvehicle.ModItems;
 import com.blockvehicle.command.RemoveVehicleCommand;
+import com.blockvehicle.command.VehiclePresetCommand;
 import com.blockvehicle.network.ModNetworking;
 import com.blockvehicle.sound.ModSounds;
 import com.blockvehicle.vehicle.ActivationConfirmManager;
@@ -28,6 +29,7 @@ implements ModInitializer {
         ModSounds.register();
         ModNetworking.registerServerHandlers();
         CommandRegistrationCallback.EVENT.register(RemoveVehicleCommand::register);
+        CommandRegistrationCallback.EVENT.register(VehiclePresetCommand::register);
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
             String text = message.getContent().getString();
             ActivationConfirmManager.onChatMessage(sender, text);
@@ -42,4 +44,3 @@ implements ModInitializer {
         LOGGER.info("BlockVehicle mod initialized.");
     }
 }
-

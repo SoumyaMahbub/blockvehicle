@@ -6,9 +6,7 @@ import com.blockvehicle.entity.VehicleEntity;
 import com.blockvehicle.sound.ModSounds;
 import com.blockvehicle.vehicle.VehicleInputState;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
@@ -19,9 +17,10 @@ import net.minecraft.sound.SoundCategory;
 
 @Environment(value=EnvType.CLIENT)
 public final class VehicleSoundManager {
-    private static final Set<Integer> playingVehicleIds = new HashSet<Integer>();
+    private static final Map<Integer, EngineLoops> activeEngineLoops = new HashMap<>();
     private static final Map<Integer, Boolean> lastDriverState = new HashMap<Integer, Boolean>();
     private static final Map<Integer, Integer> skidCooldowns = new HashMap<Integer, Integer>();
+    private static int scanCooldown = 0;
 
     private VehicleSoundManager() {
     }
@@ -29,11 +28,16 @@ public final class VehicleSoundManager {
     public static void onClientTick(MinecraftClient client) {
         ClientWorld world = client.world;
         if (world == null) {
-            playingVehicleIds.clear();
+            activeEngineLoops.clear();
             lastDriverState.clear();
             skidCooldowns.clear();
+            scanCooldown = 0;
             return;
         }
+        if (++scanCooldown < 4) {
+            return;
+        }
+        scanCooldown = 0;
         for (Entity entity : world.getEntities()) {
             boolean isHardTurning;
             if (!(entity instanceof VehicleEntity)) continue;
@@ -49,12 +53,13 @@ public final class VehicleSoundManager {
                 world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(), ModSounds.CAR_DOOR_OPEN, SoundCategory.NEUTRAL, 0.75f, 1.0f, false);
             }
             lastDriverState.put(id2, hasDriver);
-            if (hasDriver && !playingVehicleIds.contains(id2)) {
-                playingVehicleIds.add(id2);
-                client.getSoundManager().play((SoundInstance)new VehicleEngineSoundInstance(vehicle));
-                client.getSoundManager().play((SoundInstance)new VehicleIdleSoundInstance(vehicle));
-            } else if (!hasDriver) {
-                playingVehicleIds.remove(id2);
+            EngineLoops loops = activeEngineLoops.get(id2);
+            if (hasDriver && (loops == null || loops.isDone())) {
+                VehicleEngineSoundInstance engine = new VehicleEngineSoundInstance(vehicle);
+                VehicleIdleSoundInstance idle = new VehicleIdleSoundInstance(vehicle);
+                activeEngineLoops.put(id2, new EngineLoops(engine, idle));
+                client.getSoundManager().play((SoundInstance)engine);
+                client.getSoundManager().play((SoundInstance)idle);
             }
             if (!hasDriver) continue;
             VehicleInputState input = vehicle.getInputState();
@@ -70,11 +75,16 @@ public final class VehicleSoundManager {
             float pitch = 0.95f + speed * 0.5f;
             float vol = Math.min(0.9f, 0.4f + speed * 1.2f);
             world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(), ModSounds.TIRE_SKID, SoundCategory.NEUTRAL, vol, pitch, false);
-            skidCooldowns.put(id2, 14);
+            skidCooldowns.put(id2, 4);
         }
         lastDriverState.keySet().removeIf(id -> world.getEntityById(id.intValue()) == null);
-        playingVehicleIds.removeIf(id -> world.getEntityById(id.intValue()) == null);
+        activeEngineLoops.entrySet().removeIf(entry -> world.getEntityById(entry.getKey()) == null || entry.getValue().isDone());
         skidCooldowns.keySet().removeIf(id -> world.getEntityById(id.intValue()) == null);
     }
-}
 
+    private record EngineLoops(VehicleEngineSoundInstance engine, VehicleIdleSoundInstance idle) {
+        private boolean isDone() {
+            return this.engine.isDone() && this.idle.isDone();
+        }
+    }
+}

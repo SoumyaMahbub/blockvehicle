@@ -10,6 +10,7 @@ import com.blockvehicle.client.sound.VehicleSoundManager;
 import com.blockvehicle.client.wand.ClientWandStore;
 import com.blockvehicle.entity.VehicleEntity;
 import com.blockvehicle.network.VehicleSyncPayload;
+import com.blockvehicle.network.VehicleImpactPayload;
 import com.blockvehicle.network.WandSyncPayload;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
@@ -42,7 +43,18 @@ implements ClientModInitializer {
             Entity entity = client.world.getEntityById(payload.entityId());
             if (entity instanceof VehicleEntity) {
                 VehicleEntity vehicle = (VehicleEntity)entity;
-                vehicle.applyServerSync(payload.x(), payload.y(), payload.z(), payload.yaw(), payload.speed(), payload.pitch(), payload.roll(), payload.angularVelocity());
+                vehicle.applyServerTelemetry(payload.speed(), payload.pitch(), payload.roll(), payload.angularVelocity());
+            }
+        }));
+        ClientPlayNetworking.registerGlobalReceiver(VehicleImpactPayload.ID, (payload, context) -> context.client().execute(() -> {
+            MinecraftClient client = context.client();
+            if (client.world == null) {
+                return;
+            }
+            Entity entity = client.world.getEntityById(payload.entityId());
+            if (entity instanceof VehicleEntity vehicle) {
+                vehicle.setSpeed(payload.resultingSpeed());
+                vehicle.applyCollisionImpulse(payload.impulseX(), payload.impulseY(), payload.impulseZ(), payload.angularImpulse());
             }
         }));
         ClientPlayNetworking.registerGlobalReceiver(WandSyncPayload.ID, (payload, context) -> context.client().execute(() -> ClientWandStore.applySync(payload)));
@@ -51,4 +63,3 @@ implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(VehicleSoundManager::onClientTick);
     }
 }
-

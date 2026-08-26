@@ -46,4 +46,3 @@ public record VehicleInputPayload(boolean forward, boolean backward, boolean lef
         return ID;
     }
 }
-

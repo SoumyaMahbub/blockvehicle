@@ -19,6 +19,7 @@ public class ModNetworking {
         PayloadTypeRegistry.playC2S().register(VehicleInputPayload.ID, VehicleInputPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(VehicleHornPayload.ID, VehicleHornPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(VehicleSyncPayload.ID, VehicleSyncPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(VehicleImpactPayload.ID, VehicleImpactPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(WandSyncPayload.ID, WandSyncPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(VehicleHornPayload.ID, (payload, context) -> context.server().execute(() -> {
             VehicleEntity ve;
@@ -33,6 +34,9 @@ public class ModNetworking {
             Entity vehicle = player.getVehicle();
             if (vehicle instanceof VehicleEntity) {
                 VehicleEntity ve = (VehicleEntity)vehicle;
+                if (ve.getControllingPassenger() != player || !ve.isValidClientDriverUpdate(payload.x(), payload.y(), payload.z(), payload.yaw(), payload.speed(), payload.pitch(), payload.roll())) {
+                    return;
+                }
                 ve.setInputState(new VehicleInputState(payload.forward(), payload.backward(), payload.left(), payload.right(), payload.brake()));
                 ve.applyClientDriverUpdate(payload.x(), payload.y(), payload.z(), payload.yaw(), payload.speed(), payload.pitch(), payload.roll());
             }
@@ -40,4 +44,3 @@ public class ModNetworking {
         BlockVehicleMod.LOGGER.info("ModNetworking: server handlers registered.");
     }
 }
-

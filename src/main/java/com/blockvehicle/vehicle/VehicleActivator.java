@@ -48,6 +48,26 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 public class VehicleActivator {
+    public static int countNonAirBlocks(ServerWorld world, BlockPos min, BlockPos max, int stopAfter) {
+        int x0 = Math.min(min.getX(), max.getX());
+        int y0 = Math.min(min.getY(), max.getY());
+        int z0 = Math.min(min.getZ(), max.getZ());
+        int x1 = Math.max(min.getX(), max.getX());
+        int y1 = Math.max(min.getY(), max.getY());
+        int z1 = Math.max(min.getZ(), max.getZ());
+        int count = 0;
+        for (int x = x0; x <= x1; ++x) {
+            for (int y = y0; y <= y1; ++y) {
+                for (int z = z0; z <= z1; ++z) {
+                    if (!world.getBlockState(new BlockPos(x, y, z)).isAir() && ++count > stopAfter) {
+                        return count;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
     public static float directionToYaw(Direction dir) {
         if (dir == null) {
             return 0.0f;
@@ -98,6 +118,14 @@ public class VehicleActivator {
     }
 
     public static VehicleStructure activate(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, Direction defaultPlayerFacing) {
+        return VehicleActivator.capture(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, defaultPlayerFacing, true);
+    }
+
+    public static VehicleStructure capturePreset(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, Direction defaultPlayerFacing) {
+        return VehicleActivator.capture(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, defaultPlayerFacing, false);
+    }
+
+    private static VehicleStructure capture(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, Direction defaultPlayerFacing, boolean removeFromWorld) {
         double rz;
         double ry;
         double rx;
@@ -186,16 +214,18 @@ public class VehicleActivator {
             boolean isGlow = frame instanceof GlowItemFrameEntity;
             storedFrames.add(new VehicleStructure.StoredItemFrame(itemTag, frame.getFacing().getName(), rx, ry, rz, frame.getRotation(), isGlow));
         }
-        for (ItemFrameEntity frame : itemFrames) {
-            frame.discard();
-        }
-        for (int x = x0; x <= x1; ++x) {
-            for (int y = y0; y <= y1; ++y) {
-                for (int z = z0; z <= z1; ++z) {
-                    BlockPos pos = new BlockPos(x, y, z);
-                    if (world.getBlockState(pos).isAir()) continue;
-                    world.removeBlockEntity(pos);
-                    world.setBlockState(pos, Blocks.AIR.getDefaultState(), 51);
+        if (removeFromWorld) {
+            for (ItemFrameEntity frame : itemFrames) {
+                frame.discard();
+            }
+            for (int x = x0; x <= x1; ++x) {
+                for (int y = y0; y <= y1; ++y) {
+                    for (int z = z0; z <= z1; ++z) {
+                        BlockPos pos = new BlockPos(x, y, z);
+                        if (world.getBlockState(pos).isAir()) continue;
+                        world.removeBlockEntity(pos);
+                        world.setBlockState(pos, Blocks.AIR.getDefaultState(), 51);
+                    }
                 }
             }
         }
@@ -231,6 +261,26 @@ public class VehicleActivator {
             case 3 -> BlockRotation.COUNTERCLOCKWISE_90;
             default -> BlockRotation.NONE;
         };
+    }
+
+    public static boolean canPlaceAt(ServerWorld world, VehicleStructure structure, Vec3d vehiclePos, float yawDegrees) {
+        if (structure == null || structure.getBlocks().isEmpty()) {
+            return false;
+        }
+        float relativeYaw = yawDegrees - structure.getInitialYaw();
+        float yawRad = (float)Math.toRadians(relativeYaw);
+        double cosY = Math.cos(yawRad);
+        double sinY = Math.sin(yawRad);
+        for (VehicleStructure.StoredBlock block : structure.getBlocks()) {
+            double wx = vehiclePos.x + (block.rx() * cosY - block.rz() * sinY);
+            double wy = vehiclePos.y + block.ry();
+            double wz = vehiclePos.z + (block.rx() * sinY + block.rz() * cosY);
+            BlockPos pos = BlockPos.ofFloored(wx, wy, wz);
+            if (!world.isInBuildLimit(pos) || !world.getBlockState(pos).isReplaceable()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static void deactivate(ServerWorld world, VehicleStructure structure, Vec3d vehiclePos, float yawDegrees) {
@@ -300,4 +350,3 @@ public class VehicleActivator {
         }
     }
 }
-

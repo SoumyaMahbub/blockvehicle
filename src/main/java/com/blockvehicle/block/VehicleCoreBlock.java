@@ -28,6 +28,8 @@ import net.minecraft.world.World;
 
 public class VehicleCoreBlock
 extends Block {
+    private static final long MAX_SELECTION_VOLUME = 32768L;
+    private static final int MAX_VEHICLE_BLOCKS = 8192;
     public static final BooleanProperty ACTIVATED = BooleanProperty.of("activated");
 
     public VehicleCoreBlock(AbstractBlock.Settings settings) {
@@ -67,6 +69,18 @@ extends Block {
     }
 
     public static boolean activateVehicle(ServerWorld serverWorld, PlayerEntity player, BlockPos corner1, BlockPos corner2, BlockPos customDriver, Direction customDriverFacing, Set<BlockPos> customPassengers, Set<BlockPos> customWheels, Direction playerFacing) {
+        long volume = (long)(Math.abs(corner1.getX() - corner2.getX()) + 1)
+            * (long)(Math.abs(corner1.getY() - corner2.getY()) + 1)
+            * (long)(Math.abs(corner1.getZ() - corner2.getZ()) + 1);
+        if (volume > MAX_SELECTION_VOLUME) {
+            player.sendMessage(Text.literal("\u00a7cVehicle selection volume is limited to " + MAX_SELECTION_VOLUME + " blocks for server stability."), false);
+            return false;
+        }
+        int selectedBlocks = VehicleActivator.countNonAirBlocks(serverWorld, corner1, corner2, MAX_VEHICLE_BLOCKS);
+        if (selectedBlocks > MAX_VEHICLE_BLOCKS) {
+            player.sendMessage(Text.literal("\u00a7cVehicles are limited to " + MAX_VEHICLE_BLOCKS + " non-air blocks for multiplayer stability."), false);
+            return false;
+        }
         VehicleStructure structure = VehicleActivator.activate(serverWorld, corner1, corner2, customDriver, customDriverFacing, customPassengers, customWheels, playerFacing);
         if (structure.getBlocks().isEmpty()) {
             player.sendMessage((Text)Text.literal("\u00a7cNo blocks found in selected region!"), true);
@@ -95,4 +109,3 @@ extends Block {
         return VehicleCoreBlock.activateVehicle(serverWorld, player, corner1, corner2, customDriver, customDriverFacing, customPassengers, customWheels, player.getHorizontalFacing());
     }
 }
-

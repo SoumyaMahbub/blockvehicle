@@ -6,6 +6,7 @@ import com.blockvehicle.vehicle.SeatData;
 import com.blockvehicle.vehicle.VehicleActivator;
 import com.blockvehicle.vehicle.VehicleCollisionHandler;
 import com.blockvehicle.vehicle.VehicleInputState;
+import com.blockvehicle.vehicle.VehiclePhysics;
 import com.blockvehicle.vehicle.VehicleStructure;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -72,6 +73,8 @@ extends Entity {
     private VehicleInputState inputState = VehicleInputState.EMPTY;
     private double motionX = 0.0;
     private double motionZ = 0.0;
+    private double impactVelocityX = 0.0;
+    private double impactVelocityZ = 0.0;
     private final Map<UUID, Integer> passengerSeatMap = new HashMap<UUID, Integer>();
     public double clientTargetX;
     public double clientTargetY;
@@ -80,6 +83,7 @@ extends Entity {
     public float clientTargetPitch;
     public float clientTargetRoll;
     public int clientInterpSteps = 0;
+    private int clientVisualInterpSteps = 0;
     private float boxHeight = 2.0f;
 
     public VehicleEntity(EntityType<?> type, World world) {
@@ -175,7 +179,7 @@ extends Entity {
     }
 
     public void addAngularVelocity(float deltaOmega) {
-        this.angularVelocity = MathHelper.clamp((float)(this.angularVelocity + deltaOmega), (float)-10.5f, (float)10.5f);
+        this.angularVelocity = MathHelper.clamp(this.angularVelocity + deltaOmega, -VehiclePhysics.MAX_ANGULAR_VELOCITY, VehiclePhysics.MAX_ANGULAR_VELOCITY);
     }
 
     public int getBlockCount() {
@@ -309,22 +313,59 @@ extends Entity {
         return this.getWorld().isClient() && (livingEntity = this.getControllingPassenger()) instanceof PlayerEntity && (player = (PlayerEntity)livingEntity).isMainPlayer();
     }
 
+    @Override
+    public boolean isLogicalSideForUpdatingMovement() {
+        if (this.isDrivenByLocalPlayer()) {
+            // BlockVehicle has rotated, per-block collision geometry that vanilla's
+            // vehicle-movement validator cannot reproduce. The mod's single C2S
+            // movement stream below is authoritative for the local driver.
+            return false;
+        }
+        return super.isLogicalSideForUpdatingMovement();
+    }
+
     public void applyClientDriverUpdate(double x, double y, double z, float yaw, float spd, float pitch, float roll) {
+        double deltaY = y - this.getY();
         this.prevX = this.getX();
         this.prevY = this.getY();
         this.prevZ = this.getZ();
         this.prevYaw = this.getYaw();
         this.prevVehiclePitch = this.vehiclePitch;
         this.prevVehicleRoll = this.vehicleRoll;
-        this.setPos(x, y, z);
+        this.setPosition(x, y, z);
         this.setYaw(yaw);
-        this.speed = spd;
-        this.vehiclePitch = pitch;
-        this.vehicleRoll = roll;
-        float yawRad = (float)Math.toRadians(yaw);
-        this.setVelocity(-Math.sin(yawRad) * (double)spd, 0.0, Math.cos(yawRad) * (double)spd);
+        this.speed = MathHelper.clamp(spd, -this.getMaxSpeed(), this.getMaxSpeed());
+        this.vehiclePitch = MathHelper.clamp(pitch, -35.0f, 35.0f);
+        this.vehicleRoll = MathHelper.clamp(roll, -35.0f, 35.0f);
+        this.verticalVelocity = MathHelper.clamp(deltaY, -3.92, 1.2);
+        this.motionX = -Math.sin((double)((float)Math.toRadians(yaw))) * (double)this.speed;
+        this.motionZ = Math.cos((double)((float)Math.toRadians(yaw))) * (double)this.speed;
+        this.setVelocity(this.motionX, this.verticalVelocity, this.motionZ);
         this.velocityModified = true;
         this.refreshBoundingBox();
+    }
+
+    public boolean isValidClientDriverUpdate(double x, double y, double z, float yaw, float spd, float pitch, float roll) {
+        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
+            || !Float.isFinite(yaw) || !Float.isFinite(spd) || !Float.isFinite(pitch) || !Float.isFinite(roll)) {
+            return false;
+        }
+        double dx = x - this.getX();
+        double dz = z - this.getZ();
+        double maxHorizontalDelta = Math.max(3.0, this.getMaxSpeed() * 5.0 + 1.0);
+        return dx * dx + dz * dz <= maxHorizontalDelta * maxHorizontalDelta
+            && Math.abs(y - this.getY()) <= 12.0
+            && Math.abs(spd) <= this.getMaxSpeed() * 1.35f
+            && Math.abs(pitch) <= 35.0f
+            && Math.abs(roll) <= 35.0f;
+    }
+
+    public void applyCollisionImpulse(double impulseX, double impulseY, double impulseZ, float angularImpulse) {
+        this.impactVelocityX = MathHelper.clamp(this.impactVelocityX + impulseX, -1.8, 1.8);
+        this.impactVelocityZ = MathHelper.clamp(this.impactVelocityZ + impulseZ, -1.8, 1.8);
+        this.verticalVelocity = MathHelper.clamp(this.verticalVelocity + impulseY, -3.92, 1.2);
+        this.addAngularVelocity(angularImpulse);
+        this.setOnGround(false);
     }
 
     public void tick() {
@@ -349,7 +390,6 @@ extends Entity {
                 this.tickPhysics();
             } else {
                 this.tickClientInterp();
-                VehicleCollisionHandler.handleCollisions(this);
             }
             return;
         }
@@ -389,11 +429,14 @@ extends Entity {
             double ny = this.getY() + (this.clientTargetY - this.getY()) / (double)this.clientInterpSteps;
             double nz = this.getZ() + (this.clientTargetZ - this.getZ()) / (double)this.clientInterpSteps;
             float nyw = this.getYaw() + MathHelper.wrapDegrees((float)(this.clientTargetYaw - this.getYaw())) / (float)this.clientInterpSteps;
-            this.vehiclePitch += (this.clientTargetPitch - this.vehiclePitch) / (float)this.clientInterpSteps;
-            this.vehicleRoll += (this.clientTargetRoll - this.vehicleRoll) / (float)this.clientInterpSteps;
             --this.clientInterpSteps;
             this.setPosition(nx, ny, nz);
             this.setYaw(nyw);
+        }
+        if (this.clientVisualInterpSteps > 0) {
+            this.vehiclePitch += (this.clientTargetPitch - this.vehiclePitch) / (float)this.clientVisualInterpSteps;
+            this.vehicleRoll += (this.clientTargetRoll - this.vehicleRoll) / (float)this.clientVisualInterpSteps;
+            --this.clientVisualInterpSteps;
         }
         float rollDelta = this.speed / 0.65f * 57.295776f * 0.45f;
         this.wheelRollAngle += rollDelta;
@@ -419,7 +462,7 @@ extends Entity {
         if (isMoving && (this.inputState.left || this.inputState.right)) {
             float dir;
             float speedFrac = Math.min(Math.abs(this.speed) / maxSpd, 1.0f);
-            float effectiveTorque = 2.4f * (0.55f + 0.45f * speedFrac);
+            float effectiveTorque = VehiclePhysics.STEERING_TORQUE * (0.55f + 0.45f * speedFrac);
             float f = dir = this.speed >= 0.0f ? 1.0f : -1.0f;
             if (this.inputState.left) {
                 steerTorque -= effectiveTorque * dir;
@@ -427,17 +470,14 @@ extends Entity {
             if (this.inputState.right) {
                 steerTorque += effectiveTorque * dir;
             }
-            if (!this.inputState.forward && !this.inputState.backward) {
-                this.speed *= 0.99f;
-            }
         }
-        float f = damping = this.inputState.brake ? 0.92f : 0.74f;
+        float f = damping = this.inputState.brake ? VehiclePhysics.BRAKE_ANGULAR_DAMPING : VehiclePhysics.ANGULAR_DAMPING;
         if (!isMoving) {
             damping = 0.4f;
         }
         float angularAcc = steerTorque / inertia;
         this.angularVelocity = (this.angularVelocity + angularAcc) * damping;
-        this.angularVelocity = MathHelper.clamp((float)this.angularVelocity, (float)-10.5f, (float)10.5f);
+        this.angularVelocity = MathHelper.clamp(this.angularVelocity, -VehiclePhysics.MAX_ANGULAR_VELOCITY, VehiclePhysics.MAX_ANGULAR_VELOCITY);
         if (Math.abs(this.angularVelocity) < 0.01f) {
             this.angularVelocity = 0.0f;
         }
@@ -460,9 +500,22 @@ extends Entity {
         float dynamicRevAcc = revAcc * Math.max(0.2f, 1.0f - 0.5f * (Math.abs(this.speed) / maxRevSpd));
         if (!this.hasDriver()) {
             this.inputState = VehicleInputState.EMPTY;
-            this.speed = this.isOnGround() ? (this.speed *= 0.92f) : (this.speed *= 0.995f);
+            this.speed = this.isOnGround() ? (this.speed *= 0.965f) : (this.speed *= 0.998f);
         } else {
-            this.speed = this.inputState.brake ? (this.speed *= 0.86f) : (this.inputState.forward ? Math.min(this.speed + dynamicAcc, maxSpd) : (this.inputState.backward ? Math.max(this.speed - dynamicRevAcc, -maxRevSpd) : (this.speed *= this.isOnGround() ? 0.975f : 0.995f)));
+            if (this.inputState.brake) {
+                float brakeAmount = VehiclePhysics.BRAKE_BASE_DECELERATION + Math.abs(this.speed) * VehiclePhysics.BRAKE_SPEED_FACTOR;
+                if (Math.abs(this.speed) <= brakeAmount) {
+                    this.speed = 0.0f;
+                } else {
+                    this.speed -= Math.signum(this.speed) * brakeAmount;
+                }
+            } else if (this.inputState.forward) {
+                this.speed = Math.min(this.speed + dynamicAcc, maxSpd);
+            } else if (this.inputState.backward) {
+                this.speed = Math.max(this.speed - dynamicRevAcc, -maxRevSpd);
+            } else {
+                this.speed *= this.isOnGround() ? VehiclePhysics.FRICTION : 0.998f;
+            }
         }
         if (this.isOnGround() && Math.abs(this.speed) < 0.003f) {
             this.speed = 0.0f;
@@ -475,12 +528,12 @@ extends Entity {
         if (!this.isOnGround()) {
             grip = 0.05;
         } else if (this.inputState.brake) {
-            grip = 0.16;
+            grip = 0.78;
         } else if (Math.abs(this.speed) < 0.15f) {
             grip = 0.85;
         } else {
             float speedFrac = Math.min(Math.abs(this.speed) / maxSpd, 1.0f);
-            grip = 0.62 - 0.28 * (double)speedFrac;
+            grip = 0.72 - 0.2 * (double)speedFrac;
         }
         this.motionX += (targetVelX - this.motionX) * grip;
         this.motionZ += (targetVelZ - this.motionZ) * grip;
@@ -508,9 +561,20 @@ extends Entity {
             ++this.ticksSinceGroundLeft;
             this.verticalVelocity = Math.max(this.verticalVelocity - (double)0.08f, (double)-3.92f);
         }
-        Vec3d movement = new Vec3d(this.motionX, this.verticalVelocity, this.motionZ);
+        Vec3d movement = new Vec3d(this.motionX + this.impactVelocityX, this.verticalVelocity, this.motionZ + this.impactVelocityZ);
         this.doMove(movement, wasOnGroundBefore);
-        VehicleCollisionHandler.handleCollisions(this);
+        double impactDamping = this.isOnGround() ? 0.82 : 0.96;
+        this.impactVelocityX *= impactDamping;
+        this.impactVelocityZ *= impactDamping;
+        if (Math.abs(this.impactVelocityX) < 0.003) {
+            this.impactVelocityX = 0.0;
+        }
+        if (Math.abs(this.impactVelocityZ) < 0.003) {
+            this.impactVelocityZ = 0.0;
+        }
+        if (!this.getWorld().isClient()) {
+            VehicleCollisionHandler.handleCollisions(this);
+        }
         this.computeTilt();
         this.refreshBoundingBox();
     }
@@ -534,7 +598,9 @@ extends Entity {
     }
 
     private void doMove(Vec3d movement, boolean wasOnGroundBefore) {
+        double xBeforeMove = this.getX();
         double yBeforeMove = this.getY();
+        double zBeforeMove = this.getZ();
         this.setVelocity(movement);
         this.move(MovementType.SELF, movement);
         if (wasOnGroundBefore && !this.isOnGround() && movement.y <= 0.0) {
@@ -548,6 +614,21 @@ extends Entity {
             }
         }
         double totalYDelta = this.getY() - yBeforeMove;
+        double requestedHorizontal = Math.sqrt(movement.x * movement.x + movement.z * movement.z);
+        double actualX = this.getX() - xBeforeMove;
+        double actualZ = this.getZ() - zBeforeMove;
+        double actualHorizontal = Math.sqrt(actualX * actualX + actualZ * actualZ);
+        double blockedHorizontal = Math.sqrt((movement.x - actualX) * (movement.x - actualX) + (movement.z - actualZ) * (movement.z - actualZ));
+        boolean hardHorizontalClip = requestedHorizontal > 0.02
+            && (actualHorizontal < requestedHorizontal * 0.6 || blockedHorizontal > Math.max(0.04, requestedHorizontal * 0.22));
+        if (hardHorizontalClip) {
+            this.speed *= 0.12f;
+            this.motionX = actualX;
+            this.motionZ = actualZ;
+            this.impactVelocityX *= 0.15;
+            this.impactVelocityZ *= 0.15;
+            this.angularVelocity *= 0.35f;
+        }
         VehicleCollisionHandler.resolveBlockCollisions(this, movement);
         this.refreshBoundingBox();
         if (wasOnGroundBefore && this.isOnGround() && Math.abs(totalYDelta) > 0.04) {
@@ -562,6 +643,9 @@ extends Entity {
     private void computeTilt() {
         boolean isStopped;
         if (this.structure == null) {
+            return;
+        }
+        if ((this.age & 1) != 0) {
             return;
         }
         List<VehicleStructure.StoredBlock> contacts = this.structure.getContactBlocks();
@@ -582,13 +666,14 @@ extends Entity {
         double sumFR = 0.0;
         double sumFH = 0.0;
         double sumRH = 0.0;
-        for (VehicleStructure.StoredBlock cb : contacts) {
+        int sampleCount = Math.min(16, contacts.size());
+        for (int sample = 0; sample < sampleCount; ++sample) {
+            VehicleStructure.StoredBlock cb = contacts.get((int)((long)sample * contacts.size() / sampleCount));
             double worldX = this.getX() + (cb.rx() * (double)cosY - cb.rz() * (double)sinY);
             double worldZ = this.getZ() + (cb.rx() * (double)sinY + cb.rz() * (double)cosY);
             int topBlockY = (int)Math.floor(this.getY() + minRy + 1.25);
             int bottomBlockY = (int)Math.floor(this.getY() + minRy - 2.5);
             double groundY = this.getY() + minRy;
-            boolean found = false;
             for (int by = topBlockY; by >= bottomBlockY; --by) {
                 double surfaceY;
                 VoxelShape shape;
@@ -596,7 +681,6 @@ extends Entity {
                 BlockState state = this.getWorld().getBlockState(checkPos);
                 if (state.isAir() || (shape = state.getCollisionShape((BlockView)this.getWorld(), checkPos)).isEmpty() || !((surfaceY = (double)checkPos.getY() + shape.getMax(Direction.Axis.Y)) <= this.getY() + minRy + 1.25 + 0.15)) continue;
                 groundY = surfaceY;
-                found = true;
                 break;
             }
             double localF = cb.rz();
@@ -828,7 +912,11 @@ extends Entity {
             return;
         }
         ServerWorld sw = (ServerWorld)world;
-        VehicleSyncPayload pkt = new VehicleSyncPayload(this.getId(), this.getX(), this.getY(), this.getZ(), this.getYaw(), this.speed, this.vehiclePitch, this.vehicleRoll, this.angularVelocity);
+        int interval = Math.abs(this.speed) > 0.003f || this.hasDriver() ? 4 : 10;
+        if (this.age % interval != 0) {
+            return;
+        }
+        VehicleSyncPayload pkt = new VehicleSyncPayload(this.getId(), this.speed, this.vehiclePitch, this.vehicleRoll, this.angularVelocity);
         HashSet<ServerPlayerEntity> recipients = new HashSet<ServerPlayerEntity>(PlayerLookup.tracking(this));
         for (Entity passenger : this.getPassengerList()) {
             if (!(passenger instanceof ServerPlayerEntity)) continue;
@@ -840,37 +928,15 @@ extends Entity {
         }
     }
 
-    public void applyServerSync(double x, double y, double z, float yaw, float spd, float pitch, float roll, float omega) {
+    public void applyServerTelemetry(float spd, float pitch, float roll, float omega) {
         if (this.isDrivenByLocalPlayer()) {
             return;
         }
-        double distSq = this.squaredDistanceTo(x, y, z);
-        if (distSq > 64.0) {
-            this.setPosition(x, y, z);
-            this.setYaw(yaw);
-            this.prevX = x;
-            this.prevY = y;
-            this.prevZ = z;
-            this.prevYaw = yaw;
-            this.vehiclePitch = pitch;
-            this.vehicleRoll = roll;
-            this.prevVehiclePitch = pitch;
-            this.prevVehicleRoll = roll;
-            this.angularVelocity = omega;
-            this.prevAngularVelocity = omega;
-            this.clientInterpSteps = 0;
-            this.speed = spd;
-            return;
-        }
-        this.clientTargetX = x;
-        this.clientTargetY = y;
-        this.clientTargetZ = z;
-        this.clientTargetYaw = yaw;
         this.clientTargetPitch = pitch;
         this.clientTargetRoll = roll;
         this.angularVelocity = omega;
         this.speed = spd;
-        this.clientInterpSteps = 3;
+        this.clientVisualInterpSteps = 4;
     }
 
     public boolean damage(ServerWorld world, DamageSource source, float amount) {
@@ -939,4 +1005,3 @@ extends Entity {
         nbt.putFloat("vehicleRoll", this.vehicleRoll);
     }
 }
-

@@ -1,9 +1,13 @@
 package com.blockvehicle.vehicle;
 
 import com.blockvehicle.entity.VehicleEntity;
+import com.blockvehicle.network.VehicleImpactPayload;
 import com.blockvehicle.sound.ModSounds;
 import com.blockvehicle.vehicle.VehicleStructure;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -27,6 +31,7 @@ import net.minecraft.entity.passive.PigEntity;
 import net.minecraft.entity.passive.SheepEntity;
 import net.minecraft.entity.passive.WolfEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
@@ -37,6 +42,8 @@ import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 
 public final class VehicleCollisionHandler {
+    private static final Map<Long, Long> LAST_VEHICLE_IMPACT_TICKS = new HashMap<>();
+
     private VehicleCollisionHandler() {
     }
 
@@ -49,12 +56,14 @@ public final class VehicleCollisionHandler {
             return;
         }
         World world = vehicle.getWorld();
+        if (world.isClient()) {
+            return;
+        }
         VehicleCollisionHandler.handleVehicleToVehicleCollisions(vehicle, structure, world);
         VehicleCollisionHandler.handleEntityCollisions(vehicle, structure, world);
     }
 
     public static boolean resolveBlockCollisions(VehicleEntity vehicle, Vec3d attemptedMovement) {
-        Box broadBox;
         if (vehicle.isRemoved()) {
             return false;
         }
@@ -63,10 +72,6 @@ public final class VehicleCollisionHandler {
             return false;
         }
         World world = vehicle.getWorld();
-        Iterable broadCollisions = world.getBlockCollisions(vehicle, broadBox = vehicle.getBoundingBox().expand(0.15, 0.05, 0.15));
-        if (!broadCollisions.iterator().hasNext()) {
-            return false;
-        }
         float relativeYaw = vehicle.getYaw() - structure.getInitialYaw();
         float yawRad = (float)Math.toRadians(relativeYaw);
         double cosY = Math.cos(yawRad);
@@ -78,7 +83,7 @@ public final class VehicleCollisionHandler {
         double totalPushX = 0.0;
         double totalPushZ = 0.0;
         int contactCount = 0;
-        List<VehicleStructure.StoredBlock> blocks = structure.getBlocks();
+        List<VehicleStructure.StoredBlock> blocks = structure.getCollisionProbeBlocks();
         for (VehicleStructure.StoredBlock sb : blocks) {
             double bWorldX = vX + (sb.rx() * cosY - sb.rz() * sinY);
             double bWorldY = vY + sb.ry();
@@ -152,14 +157,8 @@ public final class VehicleCollisionHandler {
                 double finalPushZ = normZ * clampedPush;
                 vehicle.setPosition(vehicle.getX() + finalPushX, vehicle.getY(), vehicle.getZ() + finalPushZ);
                 if (isMoving && (dot = (moveDirX = -Math.sin(globalYawRad = (float)Math.toRadians(vehicle.getYaw())) * (double)Math.signum(spd)) * normX + (moveDirZ = Math.cos(globalYawRad) * (double)Math.signum(spd)) * normZ) < -0.05) {
-                    double tangentX = moveDirX - dot * normX;
-                    double tangentZ = moveDirZ - dot * normZ;
-                    double tangentLen = Math.sqrt(tangentX * tangentX + tangentZ * tangentZ);
-                    if (tangentLen > 0.05) {
-                        vehicle.setSpeed((float)((double)spd * Math.max(0.75, tangentLen * (double)0.94f)));
-                    } else {
-                        vehicle.setSpeed(spd * 0.5f);
-                    }
+                    vehicle.setSpeed(Math.abs(spd) < 0.04f ? 0.0f : spd * VehiclePhysics.WALL_SLIDE_FRICTION);
+                    vehicle.setAngularVelocity(vehicle.getAngularVelocity() * 0.2f);
                     if (Math.abs(spd) > 0.2f && !world.isClient()) {
                         world.playSound(null, vehicle.getX(), vehicle.getY(), vehicle.getZ(), ModSounds.CAR_IMPACT, SoundCategory.BLOCKS, 0.8f, 1.0f);
                     }
@@ -221,8 +220,8 @@ public final class VehicleCollisionHandler {
         if (cornerBlocked) {
             double shiftMag = Math.sqrt(pushOutX * pushOutX + pushOutZ * pushOutZ);
             if (shiftMag > 0.01) {
-                double tryX = vX + Math.min(pushOutX, 0.18);
-                double tryZ = vZ + Math.min(pushOutZ, 0.18);
+                double tryX = vX + MathHelper.clamp(pushOutX, -0.18, 0.18);
+                double tryZ = vZ + MathHelper.clamp(pushOutZ, -0.18, 0.18);
                 Box tryBox = vehicle.getBoundingBox().offset(tryX - vX, 0.0, tryZ - vZ);
                 Iterable testCollisions = world.getBlockCollisions(vehicle, tryBox);
                 if (!testCollisions.iterator().hasNext()) {
@@ -230,8 +229,9 @@ public final class VehicleCollisionHandler {
                     return targetYaw;
                 }
             }
-            vehicle.setAngularVelocity(-vehicle.getAngularVelocity() * 0.25f);
-            return oldYaw + deltaYaw * 0.15f;
+            vehicle.setAngularVelocity(0.0f);
+            vehicle.setSpeed(vehicle.getSpeed() * 0.2f);
+            return oldYaw;
         }
         return targetYaw;
     }
@@ -251,7 +251,7 @@ public final class VehicleCollisionHandler {
         double vZ = vehicle.getZ();
         float speed = vehicle.getSpeed();
         boolean isMovingFast = Math.abs(speed) >= 0.04f;
-        List<VehicleStructure.StoredBlock> blocks = structure.getBlocks();
+        List<VehicleStructure.StoredBlock> blocks = structure.getCollisionProbeBlocks();
         for (Entity target : nearby) {
             if (target.getVehicle() == vehicle) continue;
             Box targetBox = target.getBoundingBox();
@@ -343,13 +343,29 @@ public final class VehicleCollisionHandler {
             OBB2D obbB;
             OBB2D obbA;
             CollisionResult sat;
+            if (vehicleA.getId() >= vehicleB.getId()) {
+                continue;
+            }
+            if (vehicleA.getBoundingBox().maxY <= vehicleB.getBoundingBox().minY || vehicleB.getBoundingBox().maxY <= vehicleA.getBoundingBox().minY) {
+                continue;
+            }
             VehicleStructure structB = vehicleB.getStructure();
             if (structB == null || (sat = VehicleCollisionHandler.checkSATCollision(obbA = VehicleCollisionHandler.getVehicleOBB(vehicleA, structA), obbB = VehicleCollisionHandler.getVehicleOBB(vehicleB, structB))) == null || !sat.colliding) continue;
-            VehicleCollisionHandler.resolveCarToCarCollision(vehicleA, vehicleB, sat, world);
+            long pairKey = ((long)vehicleA.getId() << 32) ^ (vehicleB.getId() & 0xFFFFFFFFL);
+            long now = world.getTime();
+            long lastImpact = LAST_VEHICLE_IMPACT_TICKS.getOrDefault(pairKey, Long.MIN_VALUE / 2L);
+            boolean applyImpact = now - lastImpact >= 4L;
+            VehicleCollisionHandler.resolveCarToCarCollision(vehicleA, vehicleB, sat, world, applyImpact);
+            if (applyImpact) {
+                LAST_VEHICLE_IMPACT_TICKS.put(pairKey, now);
+            }
+            if (LAST_VEHICLE_IMPACT_TICKS.size() > 4096) {
+                LAST_VEHICLE_IMPACT_TICKS.entrySet().removeIf(entry -> now - entry.getValue() > 200L);
+            }
         }
     }
 
-    private static void resolveCarToCarCollision(VehicleEntity vA, VehicleEntity vB, CollisionResult sat, World world) {
+    private static void resolveCarToCarCollision(VehicleEntity vA, VehicleEntity vB, CollisionResult sat, World world, boolean applyImpact) {
         double dz;
         Vec3d normal = sat.normal;
         double depth = sat.depth;
@@ -357,9 +373,12 @@ public final class VehicleCollisionHandler {
         if (dx * normal.x + (dz = vB.getZ() - vA.getZ()) * normal.z < 0.0) {
             normal = normal.multiply(-1.0);
         }
-        double separation = depth * 0.52;
-        vA.setPosition(vA.getX() - normal.x * separation, vA.getY(), vA.getZ() - normal.z * separation);
-        vB.setPosition(vB.getX() + normal.x * separation, vB.getY(), vB.getZ() + normal.z * separation);
+        double massA = vA.getTotalMass();
+        double massB = vB.getTotalMass();
+        double totalMass = Math.max(1.0, massA + massB);
+        double separation = Math.min(depth + 0.02, 0.8);
+        vA.setPosition(vA.getX() - normal.x * separation * (massB / totalMass), vA.getY(), vA.getZ() - normal.z * separation * (massB / totalMass));
+        vB.setPosition(vB.getX() + normal.x * separation * (massA / totalMass), vB.getY(), vB.getZ() + normal.z * separation * (massA / totalMass));
         float spdA = vA.getSpeed();
         float spdB = vB.getSpeed();
         float yawRadA = (float)Math.toRadians(vA.getYaw());
@@ -368,31 +387,41 @@ public final class VehicleCollisionHandler {
         Vec3d velB = new Vec3d(-Math.sin(yawRadB) * (double)spdB, 0.0, Math.cos(yawRadB) * (double)spdB);
         Vec3d relVel = velA.subtract(velB);
         double velAlongNormal = relVel.x * normal.x + relVel.z * normal.z;
-        if (velAlongNormal > 0.0) {
-            double massA = vA.getTotalMass();
-            double massB = vB.getTotalMass();
-            double totalMass = massA + massB;
-            double restitution = 0.35f;
-            double impulse = velAlongNormal * (1.0 + restitution);
-            vA.setSpeed((float)((double)spdA - impulse * (massB / totalMass) * (double)Math.signum(spdA == 0.0f ? 1.0f : spdA)));
-            vB.setSpeed((float)((double)spdB + impulse * (massA / totalMass) * (double)Math.signum(spdB == 0.0f ? 1.0f : spdB)));
+        if (applyImpact && velAlongNormal > 0.025) {
+            double restitution = 0.42;
+            double impulse = velAlongNormal * (1.0 + restitution) / (1.0 / massA + 1.0 / massB);
+            double impulseAx = -normal.x * impulse / massA;
+            double impulseAz = -normal.z * impulse / massA;
+            double impulseBx = normal.x * impulse / massB;
+            double impulseBz = normal.z * impulse / massB;
+            vA.setSpeed(spdA * 0.78f);
+            vB.setSpeed(spdB * 0.78f);
             double midX = (vA.getX() + vB.getX()) / 2.0;
             double midZ = (vA.getZ() + vB.getZ()) / 2.0;
             double rAx = midX - vA.getX();
             double rAz = midZ - vA.getZ();
             double rBx = midX - vB.getX();
             double rBz = midZ - vB.getZ();
-            double forceAx = -normal.x * impulse;
-            double forceAz = -normal.z * impulse;
-            double forceBx = normal.x * impulse;
-            double forceBz = normal.z * impulse;
-            double tauA = (rAx * forceAz - rAz * forceAx) * 16.0;
-            double tauB = (rBx * forceBz - rBz * forceBx) * 16.0;
-            vA.addAngularVelocity((float)(tauA / (double)vA.getMomentOfInertia()));
-            vB.addAngularVelocity((float)(tauB / (double)vB.getMomentOfInertia()));
+            double tauA = (rAx * impulseAz - rAz * impulseAx) * 9.0;
+            double tauB = (rBx * impulseBz - rBz * impulseBx) * 9.0;
+            float spinA = MathHelper.clamp((float)(tauA / vA.getMomentOfInertia()), -6.5f, 6.5f);
+            float spinB = MathHelper.clamp((float)(tauB / vB.getMomentOfInertia()), -6.5f, 6.5f);
+            float liftA = MathHelper.clamp((float)(0.08 + velAlongNormal * 0.22 * massB / massA), 0.08f, 0.65f);
+            float liftB = MathHelper.clamp((float)(0.08 + velAlongNormal * 0.22 * massA / massB), 0.08f, 0.65f);
+            VehicleCollisionHandler.applyVehicleImpact(vA, impulseAx, liftA, impulseAz, spinA);
+            VehicleCollisionHandler.applyVehicleImpact(vB, impulseBx, liftB, impulseBz, spinB);
             if (velAlongNormal > 0.04) {
                 world.playSound(null, (vA.getX() + vB.getX()) / 2.0, (vA.getY() + vB.getY()) / 2.0, (vA.getZ() + vB.getZ()) / 2.0, ModSounds.CAR_IMPACT, SoundCategory.BLOCKS, 1.0f, 1.0f);
             }
+        }
+    }
+
+    private static void applyVehicleImpact(VehicleEntity vehicle, double impulseX, double impulseY, double impulseZ, float angularImpulse) {
+        if (vehicle.hasDriver() && vehicle.getControllingPassenger() instanceof ServerPlayerEntity driver) {
+            vehicle.addAngularVelocity(angularImpulse);
+            ServerPlayNetworking.send(driver, new VehicleImpactPayload(vehicle.getId(), (float)impulseX, (float)impulseY, (float)impulseZ, angularImpulse, vehicle.getSpeed()));
+        } else {
+            vehicle.applyCollisionImpulse(impulseX, impulseY, impulseZ, angularImpulse);
         }
     }
 
@@ -452,4 +481,3 @@ public final class VehicleCollisionHandler {
     private record CollisionResult(boolean colliding, Vec3d normal, double depth) {
     }
 }
-

@@ -2,9 +2,13 @@ package com.blockvehicle.client.renderer;
 
 import com.blockvehicle.entity.VehicleEntity;
 import com.blockvehicle.vehicle.VehicleStructure;
-import java.util.HashMap;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.WeakHashMap;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.block.AbstractSignBlock;
@@ -12,13 +16,21 @@ import net.minecraft.block.BlockRenderType;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.SignBlockEntity;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gl.GlUsage;
+import net.minecraft.client.gl.VertexBuffer;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.BuiltBuffer;
 import net.minecraft.client.render.OverlayTexture;
+import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.RenderLayers;
+import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.block.BlockRenderManager;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.client.render.entity.EntityRendererFactory;
 import net.minecraft.client.render.entity.state.EntityRenderState;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.util.BufferAllocator;
 import net.minecraft.entity.Entity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ModelTransformationMode;
@@ -31,11 +43,15 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 import org.joml.Vector3f;
+import org.joml.Matrix4fStack;
 
 @Environment(value=EnvType.CLIENT)
 public class VehicleEntityRenderer
 extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> {
-    private final Map<VehicleStructure.StoredBlock, BlockEntity> blockEntityCache = new HashMap<VehicleStructure.StoredBlock, BlockEntity>();
+    private final Map<VehicleStructure.StoredBlock, BlockEntity> blockEntityCache = new WeakHashMap<>();
+    private final Map<Integer, CachedMesh> meshCache = new HashMap<>();
+    private int renderCalls = 0;
+    private World meshWorld;
 
     public VehicleEntityRenderer(EntityRendererFactory.Context ctx) {
         super(ctx);
@@ -50,6 +66,7 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         VehicleStructure structure;
         super.updateRenderState(entity, state, tickDelta);
         state.structure = structure = entity.getStructure();
+        state.entityId = entity.getId();
         state.blocks = structure != null ? structure.getRenderableBlocks() : List.of();
         state.itemFrames = structure != null ? structure.getItemFrames() : List.of();
         state.initialYaw = structure != null ? structure.getInitialYaw() : 0.0f;
@@ -68,6 +85,14 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
             return;
         }
         MinecraftClient client = MinecraftClient.getInstance();
+        if (this.meshWorld != client.world) {
+            for (CachedMesh mesh : this.meshCache.values()) {
+                mesh.close();
+            }
+            this.meshCache.clear();
+            this.blockEntityCache.clear();
+            this.meshWorld = client.world;
+        }
         BlockRenderManager blockRenderManager = client.getBlockRenderManager();
         matrices.push();
         matrices.translate(0.0, (double)(state.visualYOffset + state.tiltLift), 0.0);
@@ -80,11 +105,27 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         float axleX = (float)Math.cos(initYawRad);
         float axleZ = (float)Math.sin(initYawRad);
         RotationAxis rollAxis = RotationAxis.of((Vector3f)new Vector3f(axleX, 0.0f, axleZ));
-        for (VehicleStructure.StoredBlock sb : state.blocks) {
+        List<VehicleStructure.StoredBlock> dynamicBlocks = state.blocks;
+        if (struct != null) {
+            CachedMesh cached = this.meshCache.get(state.entityId);
+            if (cached == null || cached.structure != struct) {
+                if (cached != null) {
+                    cached.close();
+                }
+                cached = this.buildStaticMesh(client, struct, light);
+                this.meshCache.put(state.entityId, cached);
+            }
+            cached.draw(matrices);
+            dynamicBlocks = cached.dynamicBlocks;
+        }
+        for (VehicleStructure.StoredBlock sb : dynamicBlocks) {
             boolean isSteering;
-            matrices.push();
             boolean isWheel = struct != null && struct.isWheel(sb.rx(), sb.ry(), sb.rz());
             boolean bl = isSteering = struct != null && struct.isSteeringWheel(sb.rx(), sb.ry(), sb.rz());
+            if (!isWheel && this.isBakedStaticBlock(sb)) {
+                continue;
+            }
+            matrices.push();
             if (isWheel) {
                 matrices.translate(sb.rx(), sb.ry() + 0.5, sb.rz());
                 if (isSteering) {
@@ -125,7 +166,69 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
             matrices.pop();
         }
         matrices.pop();
+        this.cleanupMeshCache(client);
         super.render(state, matrices, vertexConsumers, light);
+    }
+
+    private boolean isBakedStaticBlock(VehicleStructure.StoredBlock block) {
+        return block.state().getRenderType() == BlockRenderType.MODEL
+            && !RenderLayers.getEntityBlockLayer(block.state()).isTranslucent();
+    }
+
+    private CachedMesh buildStaticMesh(MinecraftClient client, VehicleStructure structure, int light) {
+        BlockRenderManager renderer = client.getBlockRenderManager();
+        LinkedHashMap<RenderLayer, MeshBuilder> builders = new LinkedHashMap<>();
+        int estimatedBytes = Math.max(1_048_576, structure.getRenderableBlocks().size() * 1536);
+        VertexConsumerProvider provider = layer -> {
+            MeshBuilder existing = builders.get(layer);
+            if (existing != null) {
+                return existing.builder;
+            }
+            BufferAllocator allocator = new BufferAllocator(Math.max(layer.getExpectedBufferSize(), estimatedBytes));
+            MeshBuilder created = new MeshBuilder(allocator, new BufferBuilder(allocator, layer.getDrawMode(), layer.getVertexFormat()));
+            builders.put(layer, created);
+            return created.builder;
+        };
+        MatrixStack buildMatrices = new MatrixStack();
+        ArrayList<VehicleStructure.StoredBlock> dynamicBlocks = new ArrayList<>();
+        for (VehicleStructure.StoredBlock block : structure.getRenderableBlocks()) {
+            if (structure.isWheel(block.rx(), block.ry(), block.rz()) || !this.isBakedStaticBlock(block)) {
+                dynamicBlocks.add(block);
+                continue;
+            }
+            buildMatrices.push();
+            buildMatrices.translate(block.rx() - 0.5, block.ry(), block.rz() - 0.5);
+            renderer.renderBlockAsEntity(block.state(), buildMatrices, provider, light, OverlayTexture.DEFAULT_UV);
+            buildMatrices.pop();
+        }
+        ArrayList<MeshLayer> layers = new ArrayList<>();
+        for (Map.Entry<RenderLayer, MeshBuilder> entry : builders.entrySet()) {
+            MeshBuilder meshBuilder = entry.getValue();
+            BuiltBuffer built = meshBuilder.builder.endNullable();
+            if (built != null) {
+                VertexBuffer vertexBuffer = new VertexBuffer(GlUsage.STATIC_WRITE);
+                vertexBuffer.bind();
+                vertexBuffer.upload(built);
+                VertexBuffer.unbind();
+                layers.add(new MeshLayer(entry.getKey(), vertexBuffer));
+            }
+            meshBuilder.allocator.close();
+        }
+        return new CachedMesh(structure, layers, dynamicBlocks);
+    }
+
+    private void cleanupMeshCache(MinecraftClient client) {
+        if (++this.renderCalls % 200 != 0) {
+            return;
+        }
+        this.meshCache.entrySet().removeIf(entry -> {
+            Entity entity = client.world != null ? client.world.getEntityById(entry.getKey()) : null;
+            boolean stale = !(entity instanceof VehicleEntity vehicle) || vehicle.getStructure() != entry.getValue().structure;
+            if (stale) {
+                entry.getValue().close();
+            }
+            return stale;
+        });
     }
 
     private void renderSignBlock(MinecraftClient client, VehicleStructure.StoredBlock sb, MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light) {
@@ -153,6 +256,7 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         public List<VehicleStructure.StoredBlock> blocks = List.of();
         public List<VehicleStructure.StoredItemFrame> itemFrames = List.of();
         public VehicleStructure structure;
+        public int entityId;
         public float vehicleYaw;
         public float initialYaw;
         public float speed;
@@ -163,5 +267,44 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         public float visualYOffset;
         public float tiltLift;
     }
-}
 
+    private record MeshBuilder(BufferAllocator allocator, BufferBuilder builder) {
+    }
+
+    private record MeshLayer(RenderLayer layer, VertexBuffer buffer) {
+        private void close() {
+            this.buffer.close();
+        }
+    }
+
+    private static final class CachedMesh {
+        private final VehicleStructure structure;
+        private final List<MeshLayer> layers;
+        private final List<VehicleStructure.StoredBlock> dynamicBlocks;
+
+        private CachedMesh(VehicleStructure structure, List<MeshLayer> layers, List<VehicleStructure.StoredBlock> dynamicBlocks) {
+            this.structure = structure;
+            this.layers = layers;
+            this.dynamicBlocks = dynamicBlocks;
+        }
+
+        private void draw(MatrixStack matrices) {
+            if (this.layers.isEmpty()) {
+                return;
+            }
+            Matrix4fStack modelView = RenderSystem.getModelViewStack();
+            modelView.pushMatrix();
+            modelView.mul(matrices.peek().getPositionMatrix());
+            for (MeshLayer layer : this.layers) {
+                layer.buffer.draw(layer.layer);
+            }
+            modelView.popMatrix();
+        }
+
+        private void close() {
+            for (MeshLayer layer : this.layers) {
+                layer.close();
+            }
+        }
+    }
+}

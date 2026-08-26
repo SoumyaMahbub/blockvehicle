@@ -32,8 +32,28 @@ Build anything out of **any vanilla or custom blocks** (slabs, stairs, concrete,
    - **Right-click any block** → sets it as the **Driver Seat** (automatically captures the block's or your facing direction).
 3. 👥 **Add/Remove Passenger Seat** *(Optional)*
    - **Right-click any block** → toggles it as a **Passenger Seat**.
-4. ⚡ **Activate Vehicle**
+4. 🚗 **Add/Remove Wheel** *(Optional)*
+   - **Right-click any block** → toggles it as a visually rotating wheel.
+5. ⚡ **Activate Vehicle**
    - **Right-click** in air or on the build → transforms the build into an active vehicle!
+
+### Vehicle Presets
+
+After selecting both corners, save the selected build without activating or removing it:
+
+```text
+/vehiclepreset save <custom name>
+```
+
+Spawn a saved build as blocks on a clear terrain surface in front of you:
+
+```text
+/vehiclepreset spawn <custom name>
+/vehiclepreset list
+/vehiclepreset delete <custom name>
+```
+
+Preset names may contain spaces. Presets are shared and persist with the world save.
 
 ---
 
@@ -47,13 +67,14 @@ Build anything out of **any vanilla or custom blocks** (slabs, stairs, concrete,
 | **A** | Steer left |
 | **D** | Steer right |
 | **Space** | Brake |
+| **H** | Horn |
 | **Shift** | Exit seat |
 | **Mouse** | Free 360° view |
 
 ---
 
 ### 5. Dismantling
-Hold the **Vehicle Wand**, sneak (**Shift**), and **Right-Click** the vehicle to turn it back into normal world blocks at its current position.
+Look at a nearby vehicle and run **`/removevehicle`** to turn it back into normal world blocks at its current position.
 
 ---
 
@@ -62,6 +83,8 @@ Hold the **Vehicle Wand**, sneak (**Shift**), and **Right-Click** the vehicle to
 - **Auto-Detection**: Automatically detects stairs and chairs as seats if not manually designated.
 - **Single Entity**: Entire vehicle renders as one optimized entity.
 - **Multiplayer & Replay**: Smooth 144+ FPS client-side prediction, high-precision synchronization, and 100% stutter-free Flashback / ReplayMod compatibility.
+- **Persistent Presets**: Save selected builds under custom names and respawn them on the terrain surface.
+- **Two-Way Vehicle Impacts**: Occupied vehicles receive launch and spin impulses during crashes.
 
 ## Building
 Requires **Java 21** and **Gradle 8+**.

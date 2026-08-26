@@ -3,7 +3,9 @@ package com.blockvehicle.vehicle;
 import com.blockvehicle.vehicle.SeatData;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import net.minecraft.block.AbstractRailBlock;
 import net.minecraft.block.AbstractSignBlock;
@@ -45,6 +47,7 @@ public class VehicleStructure {
     private final List<StoredBlock> blocks;
     private final List<StoredBlock> renderableBlocks;
     private final List<StoredBlock> contactBlocks;
+    private final List<StoredBlock> collisionProbeBlocks;
     private final List<SeatData> seats;
     private final List<WheelData> wheels;
     private final List<StoredItemFrame> itemFrames;
@@ -106,7 +109,41 @@ public class VehicleStructure {
 
     public VehicleStructure(List<StoredBlock> blocks, List<SeatData> seats, List<WheelData> wheels, List<StoredItemFrame> itemFrames, int width, int height, int length, Vec3d localOrigin, float initialYaw) {
         this.blocks = Collections.unmodifiableList(new ArrayList<StoredBlock>(blocks));
-        this.renderableBlocks = Collections.unmodifiableList(new ArrayList<StoredBlock>(blocks));
+        Map<BlockPos, StoredBlock> byPosition = new HashMap<>();
+        for (StoredBlock block : blocks) {
+            byPosition.put(block.relativePos(), block);
+        }
+        ArrayList<StoredBlock> visible = new ArrayList<>();
+        ArrayList<StoredBlock> collisionProbes = new ArrayList<>();
+        for (StoredBlock block : blocks) {
+            BlockPos pos = block.relativePos();
+            boolean fullyEnclosed = block.state().isOpaqueFullCube();
+            if (fullyEnclosed) {
+                for (net.minecraft.util.math.Direction direction : net.minecraft.util.math.Direction.values()) {
+                    StoredBlock neighbor = byPosition.get(pos.offset(direction));
+                    if (neighbor == null || !neighbor.state().isOpaqueFullCube()) {
+                        fullyEnclosed = false;
+                        break;
+                    }
+                }
+            }
+            if (!fullyEnclosed) {
+                visible.add(block);
+            }
+            if (!byPosition.containsKey(pos.east()) || !byPosition.containsKey(pos.west())
+                || !byPosition.containsKey(pos.north()) || !byPosition.containsKey(pos.south())) {
+                collisionProbes.add(block);
+            }
+        }
+        this.renderableBlocks = Collections.unmodifiableList(visible);
+        if (collisionProbes.size() > 256) {
+            ArrayList<StoredBlock> sampled = new ArrayList<>(256);
+            for (int i = 0; i < 256; ++i) {
+                sampled.add(collisionProbes.get((int)((long)i * collisionProbes.size() / 256L)));
+            }
+            collisionProbes = sampled;
+        }
+        this.collisionProbeBlocks = Collections.unmodifiableList(collisionProbes);
         double minRy = Double.MAX_VALUE;
         for (StoredBlock storedBlock : blocks) {
             if (!(storedBlock.ry() < minRy)) continue;
@@ -143,6 +180,10 @@ public class VehicleStructure {
 
     public List<StoredBlock> getContactBlocks() {
         return this.contactBlocks;
+    }
+
+    public List<StoredBlock> getCollisionProbeBlocks() {
+        return this.collisionProbeBlocks;
     }
 
     public List<SeatData> getSeats() {

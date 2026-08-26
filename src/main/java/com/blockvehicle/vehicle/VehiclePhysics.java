@@ -5,9 +5,10 @@ public final class VehiclePhysics {
     public static final float REVERSE_ACCELERATION = 0.008f;
     public static final float MAX_SPEED = 0.85f;
     public static final float MAX_REVERSE_SPEED = 0.35f;
-    public static final float FRICTION = 0.975f;
+    public static final float FRICTION = 0.992f;
     public static final float CORNERING_DRAG = 0.99f;
-    public static final float BRAKE_FRICTION = 0.86f;
+    public static final float BRAKE_BASE_DECELERATION = 0.045f;
+    public static final float BRAKE_SPEED_FACTOR = 0.1f;
     public static final float TURN_SPEED = 6.5f;
     public static final float GRAVITY = 0.08f;
     public static final float MAX_FALL_SPEED = 3.92f;
@@ -27,15 +28,14 @@ public final class VehiclePhysics {
     public static final float MIN_DAMAGE_SPEED = 0.1f;
     public static final float RAM_DAMAGE_MULTIPLIER = 24.0f;
     public static final float CAR_COLLISION_ELASTICITY = 0.35f;
-    public static final float WALL_SLIDE_FRICTION = 0.94f;
+    public static final float WALL_SLIDE_FRICTION = 0.08f;
     public static final double MAX_PUSHOUT_PER_TICK = 0.4;
-    public static final float STEERING_TORQUE = 2.4f;
-    public static final float ANGULAR_DAMPING = 0.74f;
-    public static final float DRIFT_ANGULAR_DAMPING = 0.92f;
-    public static final float MAX_ANGULAR_VELOCITY = 10.5f;
+    public static final float STEERING_TORQUE = 1.85f;
+    public static final float ANGULAR_DAMPING = 0.72f;
+    public static final float BRAKE_ANGULAR_DAMPING = 0.58f;
+    public static final float MAX_ANGULAR_VELOCITY = 7.5f;
     public static final float IMPACT_TORQUE_FACTOR = 16.0f;
 
     private VehiclePhysics() {
     }
 }
-

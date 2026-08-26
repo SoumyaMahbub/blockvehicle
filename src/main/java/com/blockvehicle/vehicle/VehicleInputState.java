@@ -16,8 +16,20 @@ public final class VehicleInputState {
         this.brake = brake;
     }
 
+    public boolean sameControls(VehicleInputState other) {
+        return other != null
+            && this.forward == other.forward
+            && this.backward == other.backward
+            && this.left == other.left
+            && this.right == other.right
+            && this.brake == other.brake;
+    }
+
+    public boolean hasAnyInput() {
+        return this.forward || this.backward || this.left || this.right || this.brake;
+    }
+
     public String toString() {
         return "VehicleInputState{F=" + this.forward + ",B=" + this.backward + ",L=" + this.left + ",R=" + this.right + ",brake=" + this.brake + "}";
     }
 }
-
