@@ -59,6 +59,9 @@ public final class BlockVehicleConfig {
         public double planeControlAssist = 1.0;
         public double cameraRollStrength = 0.35;
         public double cameraHorizonStabilization = 0.65;
+        public double cameraSizeDistanceMultiplier = 0.90;
+        public double cameraMaxDistance = 48.0;
+        public double cameraMaxFovBoost = 12.0;
 
         private void sanitize() {
             this.maxVehicleBlocks = MathHelper.clamp(this.maxVehicleBlocks, 64, 8192);
@@ -71,6 +74,9 @@ public final class BlockVehicleConfig {
             this.planeControlAssist = finiteClamp(this.planeControlAssist, 0.0, 1.5, 1.0);
             this.cameraRollStrength = finiteClamp(this.cameraRollStrength, 0.0, 1.0, 0.35);
             this.cameraHorizonStabilization = finiteClamp(this.cameraHorizonStabilization, 0.0, 1.0, 0.65);
+            this.cameraSizeDistanceMultiplier = finiteClamp(this.cameraSizeDistanceMultiplier, 0.35, 2.0, 0.90);
+            this.cameraMaxDistance = finiteClamp(this.cameraMaxDistance, 8.0, 72.0, 48.0);
+            this.cameraMaxFovBoost = finiteClamp(this.cameraMaxFovBoost, 0.0, 25.0, 12.0);
         }
 
         private static double finiteClamp(double value, double min, double max, double fallback) {

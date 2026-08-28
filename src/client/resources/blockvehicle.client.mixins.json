@@ -4,7 +4,9 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "MinecraftClientInputMixin",
-    "PlaneCameraMixin"
+    "PlaneCameraMixin",
+    "PlaneFovMixin",
+    "PlanePassengerRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

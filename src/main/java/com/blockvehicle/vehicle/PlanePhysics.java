@@ -16,7 +16,7 @@ public final class PlanePhysics {
     public static final float BASE_THRUST = 0.031f;
     public static final float BASE_LIFT = 0.42f;
     public static final float STALL_ANGLE_DEGREES = 28.0f;
-    public static final float MAX_AIRSPEED = 1.8f;
+    public static final float MAX_AIRSPEED = 2.0f;
     public static final float GEAR_REACH = 0.62f;
     public static final int MAX_COLLISION_SUBSTEPS = 6;
 
@@ -43,13 +43,16 @@ public final class PlanePhysics {
         float airspeed = (float)velocity.length();
         double controlForwardSpeed = Math.max(0.0, velocity.dotProduct(AircraftOrientation.forward(orientation)));
         float oldStall = Float.isFinite(state.stallAmount) ? MathHelper.clamp(state.stallAmount, 0.0f, 1.0f) : 0.0f;
-        float controlAuthority = MathHelper.clamp(0.18f + (float)controlForwardSpeed * 1.55f, 0.18f, 1.0f)
+        float controlAuthority = MathHelper.clamp(0.26f + (float)controlForwardSpeed * 1.48f, 0.26f, 1.0f)
             * (1.0f - oldStall * 0.48f);
 
         float rollInput = bool(input.right) - bool(input.left);
         float pitchInput = bool(input.pitchUp) - bool(input.pitchDown);
         float yawInput = bool(input.yawRight) - bool(input.yawLeft);
         float assistance = input.stunt ? 0.15f : 1.0f;
+        if (input.pitchUp || input.pitchDown || input.left || input.right) {
+            controlAuthority = Math.max(controlAuthority, input.stunt ? 0.58f : 0.40f);
+        }
         if (grounded) {
             yawInput += rollInput;
             rollInput = 0.0f;
@@ -63,12 +66,12 @@ public final class PlanePhysics {
             yawInput = MathHelper.clamp(yawError / 75.0f, -0.38f, 0.38f) * definition.controlAssist() * assistance;
         }
 
-        float pitchRate = Float.isFinite(state.pitchRate) ? MathHelper.clamp(state.pitchRate, -3.3f, 3.3f) : 0.0f;
-        float rollRate = Float.isFinite(state.rollRate) ? MathHelper.clamp(state.rollRate, -4.8f, 4.8f) : 0.0f;
-        float yawRate = Float.isFinite(state.yawRate) ? MathHelper.clamp(state.yawRate, -2.8f, 2.8f) : 0.0f;
-        float pitchTarget = pitchInput * (grounded ? 0.7f : 2.8f) * controlAuthority;
-        float rollTarget = rollInput * 4.2f * controlAuthority;
-        float yawTarget = yawInput * (grounded ? 2.3f : 1.35f) * controlAuthority;
+        float pitchRate = Float.isFinite(state.pitchRate) ? MathHelper.clamp(state.pitchRate, -5.4f, 5.4f) : 0.0f;
+        float rollRate = Float.isFinite(state.rollRate) ? MathHelper.clamp(state.rollRate, -7.2f, 7.2f) : 0.0f;
+        float yawRate = Float.isFinite(state.yawRate) ? MathHelper.clamp(state.yawRate, -3.0f, 3.0f) : 0.0f;
+        float pitchTarget = pitchInput * (grounded ? 0.8f : input.stunt ? 5.20f : 4.10f) * controlAuthority;
+        float rollTarget = rollInput * (input.stunt ? 7.00f : 5.60f) * controlAuthority;
+        float yawTarget = yawInput * (grounded ? 2.3f : 1.60f) * controlAuthority;
 
         // Banking naturally supplies a small coordinated yaw, but never rotates
         // the velocity vector directly.
@@ -77,21 +80,24 @@ public final class PlanePhysics {
             rollTarget += MathHelper.clamp(-rollAngle * 0.012f, -0.75f, 0.75f) * definition.controlAssist() * assistance;
         }
         if (!grounded) {
-            yawTarget += MathHelper.clamp(rollRate * 0.10f, -0.42f, 0.42f) * definition.controlAssist() * assistance;
+            float rollAngle = AircraftOrientation.rollDegrees(orientation);
+            yawTarget += MathHelper.clamp(rollRate * 0.18f, -0.82f, 0.82f) * definition.controlAssist() * assistance;
+            yawTarget += MathHelper.clamp((float)Math.sin(Math.toRadians(rollAngle)) * 0.72f,
+                -0.62f, 0.62f) * definition.controlAssist() * assistance;
             if (!input.pitchUp && !input.pitchDown) {
                 pitchTarget += MathHelper.clamp(-definition.balanceOffset() * 0.035f, -0.30f, 0.30f)
                     * definition.controlAssist() * assistance;
             }
         }
-        pitchRate += (pitchTarget - pitchRate) * 0.18f;
-        rollRate += (rollTarget - rollRate) * 0.20f;
-        yawRate += (yawTarget - yawRate) * (grounded ? 0.22f : 0.14f);
+        pitchRate += (pitchTarget - pitchRate) * 0.22f;
+        rollRate += (rollTarget - rollRate) * 0.22f;
+        yawRate += (yawTarget - yawRate) * (grounded ? 0.22f : 0.17f);
         pitchRate *= grounded ? 0.72f : 0.985f;
         rollRate *= grounded ? 0.68f : 0.982f;
         yawRate *= grounded ? 0.78f : 0.985f;
-        pitchRate = MathHelper.clamp(pitchRate, -3.3f, 3.3f);
-        rollRate = MathHelper.clamp(rollRate, -4.8f, 4.8f);
-        yawRate = MathHelper.clamp(yawRate, -2.8f, 2.8f);
+        pitchRate = MathHelper.clamp(pitchRate, -5.4f, 5.4f);
+        rollRate = MathHelper.clamp(rollRate, -7.2f, 7.2f);
+        yawRate = MathHelper.clamp(yawRate, -3.0f, 3.0f);
 
         orientation.rotateX((float)Math.toRadians(-pitchRate));
         orientation.rotateY((float)Math.toRadians(-yawRate));
@@ -134,11 +140,17 @@ public final class PlanePhysics {
 
         // Air friction, turn/angle drag, and lateral slip damping. These preserve
         // inertia while making aggressive maneuvers consume energy like Elytra.
-        double drag = (0.0025 + velocity.lengthSquared() * 0.0045 + Math.abs(angleOfAttack) * 0.00012)
+        double drag = (0.0023 + velocity.lengthSquared() * 0.0042 + Math.abs(angleOfAttack) * 0.00010)
             * definition.dragScale();
+        if (input.stunt && (input.pitchUp || input.pitchDown || input.left || input.right)) drag *= 0.78;
         if (input.brake) drag += 0.035;
         velocity = velocity.multiply(MathHelper.clamp(1.0 - drag, 0.90, 0.999));
-        velocity = velocity.subtract(right.multiply(lateralSpeed * (grounded ? 0.30 : 0.035)));
+        velocity = velocity.subtract(right.multiply(lateralSpeed * (grounded ? 0.30 : 0.075)));
+        // Wings resist airflow through their broad surface. This gently brings the
+        // flight path toward the visible nose direction without snapping momentum.
+        double normalAlignment = grounded ? 0.0
+            : (input.stunt ? 0.040 : 0.065) * (1.0 - stall * 0.68);
+        velocity = velocity.subtract(up.multiply(localVerticalSpeed * normalAlignment));
 
         if (stall > 0.35f && !grounded) {
             // Smooth nose-drop tendency makes recovery intuitive: lower the nose,

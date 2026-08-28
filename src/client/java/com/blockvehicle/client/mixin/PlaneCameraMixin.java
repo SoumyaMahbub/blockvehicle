@@ -12,14 +12,30 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /** Adds a restrained aircraft attitude cue without forcing a nausea-heavy cockpit camera. */
 @Mixin(Camera.class)
 public abstract class PlaneCameraMixin {
     @Shadow @Final private Quaternionf rotation;
+    @Shadow private Entity focusedEntity;
 
     @Shadow protected abstract void setRotation(float yaw, float pitch);
+
+    @ModifyArg(method = "update", at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/render/Camera;clipToSpace(F)F"), index = 0)
+    private float blockvehicle$frameLargePlane(float vanillaDistance) {
+        if (!(this.focusedEntity != null && this.focusedEntity.getVehicle() instanceof VehicleEntity plane)
+            || !plane.isPlane() || plane.getStructure() == null) return vanillaDistance;
+        double width = plane.getStructure().getWidth();
+        double height = plane.getStructure().getHeight();
+        double length = plane.getStructure().getLength();
+        double radius = Math.sqrt(width * width + length * length + height * height) * 0.5;
+        BlockVehicleConfig.Values config = BlockVehicleConfig.get();
+        return (float)MathHelper.clamp(4.0 + radius * config.cameraSizeDistanceMultiplier,
+            vanillaDistance, config.cameraMaxDistance);
+    }
 
     @Inject(method = "update", at = @At("TAIL"))
     private void blockvehicle$applyPlaneCamera(BlockView area, Entity focusedEntity, boolean thirdPerson,

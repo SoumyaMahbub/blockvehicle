@@ -84,6 +84,9 @@ The first launch creates `config/blockvehicle.json`:
 | `planeControlAssist` | 1.0 | Mouse/auto-level assistance |
 | `cameraRollStrength` | 0.35 | How much aircraft roll reaches the camera |
 | `cameraHorizonStabilization` | 0.65 | How strongly the camera favors the horizon |
+| `cameraSizeDistanceMultiplier` | 0.90 | Automatic chase distance from plane size |
+| `cameraMaxDistance` | 48.0 | Maximum automatic third-person distance |
+| `cameraMaxFovBoost` | 12.0 | Maximum size-based third-person FOV increase |
 | `entityCollisionDamage` | false | Enables collision damage |
 | `propellerCollision` | false | Reserved for swept-disc propeller collision |
 
