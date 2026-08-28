@@ -20,10 +20,14 @@ public class RemoveVehicleCommand {
     private static final double REACH = 5.0;
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess, CommandManager.RegistrationEnvironment environment) {
-        dispatcher.register((LiteralArgumentBuilder)CommandManager.literal("removevehicle").executes(RemoveVehicleCommand::execute));
+        dispatcher.register((LiteralArgumentBuilder<ServerCommandSource>)CommandManager.literal("removevehicle")
+            .executes(context -> execute(context, false))
+            .then(CommandManager.literal("force")
+                .requires(source -> source.hasPermissionLevel(2))
+                .executes(context -> execute(context, true))));
     }
 
-    private static int execute(CommandContext<ServerCommandSource> context) {
+    private static int execute(CommandContext<ServerCommandSource> context, boolean force) {
         ServerCommandSource source = (ServerCommandSource)context.getSource();
         ServerPlayerEntity player = source.getPlayer();
         if (player == null) {
@@ -36,7 +40,7 @@ public class RemoveVehicleCommand {
             player.sendMessage((Text)Text.literal("\u00a7cNo vehicle found! Look at a vehicle and try again."), true);
             return 0;
         }
-        target.dismantleBackToBlocks(world, (PlayerEntity)player);
+        target.dismantleBackToBlocks(world, (PlayerEntity)player, force);
         return 1;
     }
 
@@ -59,4 +63,3 @@ public class RemoveVehicleCommand {
         return closest;
     }
 }
-

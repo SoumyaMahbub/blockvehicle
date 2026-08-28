@@ -46,7 +46,7 @@ extends MovingSoundInstance {
             return;
         }
         this.fadeOutTicks = 0;
-        float speedFrac = Math.min(Math.abs(this.vehicle.getSpeed()) / 0.85f, 1.0f);
+        float speedFrac = this.vehicle.isPlane() ? this.vehicle.getEngineRpm() : Math.min(Math.abs(this.vehicle.getSpeed()) / 0.85f, 1.0f);
         boolean isThrottling = this.vehicle.getInputState().forward || this.vehicle.getInputState().backward;
         float targetPitch = 0.7f + speedFrac * 0.85f + (isThrottling ? 0.08f : -0.04f);
         targetPitch = MathHelper.clamp((float)targetPitch, (float)0.65f, (float)1.75f);
@@ -56,4 +56,3 @@ extends MovingSoundInstance {
         this.volume = MathHelper.lerp((float)0.12f, (float)this.volume, (float)targetVolume);
     }
 }
-

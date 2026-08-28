@@ -5,6 +5,8 @@ import com.blockvehicle.block.VehicleCoreBlock;
 import com.blockvehicle.item.PlayerDataStore;
 import com.blockvehicle.vehicle.ActivationConfirmManager;
 import com.blockvehicle.vehicle.VehicleActivator;
+import com.blockvehicle.vehicle.PlaneSetup;
+import com.blockvehicle.vehicle.VehicleMode;
 import java.util.List;
 import java.util.Set;
 import net.minecraft.block.BlockState;
@@ -92,6 +94,46 @@ extends Item {
                 world.playSound(null, pos, SoundEvents.BLOCK_GRINDSTONE_USE, SoundCategory.PLAYERS, 0.8f, 1.2f);
                 break;
             }
+            case SET_PLANE_NOSE: {
+                if (player.isSneaking()) {
+                    PlayerDataStore.clearPlaneSetup(player.getUuid());
+                    player.sendMessage(Text.literal("\u00a7aVehicle mode set to \u00a7fGROUND\u00a7a."), true);
+                } else {
+                    PlayerDataStore.setPlaneNose(player.getUuid(), pos);
+                    player.sendMessage(Text.literal("\u00a7b\u2708 PLANE mode enabled. Nose set to \u00a7f" + pos.toShortString()), true);
+                }
+                world.playSound(null, pos, SoundEvents.UI_BUTTON_CLICK.value(), SoundCategory.PLAYERS, 0.9f, 1.25f);
+                break;
+            }
+            case SET_WING_TIPS: {
+                if (player.isSneaking()) {
+                    PlayerDataStore.setRightWingTip(player.getUuid(), pos);
+                    player.sendMessage(Text.literal("\u00a7dRight wing tip set to \u00a7f" + pos.toShortString()), true);
+                } else {
+                    PlayerDataStore.setLeftWingTip(player.getUuid(), pos);
+                    player.sendMessage(Text.literal("\u00a7dLeft wing tip set to \u00a7f" + pos.toShortString()), true);
+                }
+                world.playSound(null, pos, SoundEvents.BLOCK_AMETHYST_BLOCK_HIT, SoundCategory.PLAYERS, 0.8f, player.isSneaking() ? 1.45f : 1.15f);
+                break;
+            }
+            case SET_PROPELLER: {
+                boolean added;
+                if (player.isSneaking() && PlayerDataStore.getPropellerHubs(player.getUuid()).contains(pos)) {
+                    boolean clockwise = PlayerDataStore.togglePropellerSpin(player.getUuid(), pos);
+                    player.sendMessage(Text.literal("\u00a7ePropeller spin: \u00a7f" + (clockwise ? "clockwise" : "counter-clockwise")), true);
+                    added = true;
+                } else if (player.isSneaking()) {
+                    added = PlayerDataStore.togglePropellerBlade(player.getUuid(), pos);
+                    player.sendMessage(Text.literal((added ? "\u00a7aAdded" : "\u00a7cRemoved") + " \u00a7epropeller blade block \u00a7f" + pos.toShortString()), true);
+                } else {
+                    Direction axis = context.getSide();
+                    added = PlayerDataStore.togglePropellerHub(player.getUuid(), pos, axis);
+                    player.sendMessage(Text.literal((added ? "\u00a7aAdded" : "\u00a7cRemoved") + " \u00a76propeller hub \u00a7f" + pos.toShortString()
+                        + (added ? " \u00a77(axis: " + axis.asString() + ")" : "")), true);
+                }
+                world.playSound(null, pos, SoundEvents.BLOCK_CHAIN_HIT, SoundCategory.PLAYERS, 0.9f, added ? 1.25f : 0.85f);
+                break;
+            }
             case ACTIVATE: {
                 if (player instanceof ServerPlayerEntity && ActivationConfirmManager.hasPending((spe = (ServerPlayerEntity)player).getUuid())) {
                     ActivationConfirmManager.confirmNow(spe);
@@ -163,15 +205,24 @@ extends Item {
         Direction driverFacing = VehicleWandItem.getDriverFacing(player);
         int passengerCount = VehicleWandItem.getPassengerSeats(player).size();
         int wheelCount = VehicleWandItem.getCustomWheels(player).size();
+        PlaneSetup plane = PlayerDataStore.getPlaneSetup(player.getUuid());
         String c1str = c1 != null ? "\u00a7a" + c1.toShortString() : "\u00a7cnot set";
         String c2str = c2 != null ? "\u00a7a" + c2.toShortString() : "\u00a7cnot set";
-        String driverStr = driver != null ? "\u00a7a" + driver.toShortString() + " (" + String.valueOf(driverFacing) + ")" : "\u00a77auto (stairs/center)";
+        String driverStr = driver != null ? "\u00a7a" + driver.toShortString() + " (" + String.valueOf(driverFacing) + ")"
+            : plane.mode() == VehicleMode.PLANE ? "\u00a7cnot set (required for planes)" : "\u00a77auto (stairs/center)";
         Object wheelStr = wheelCount > 0 ? "\u00a7e" + wheelCount : "\u00a77auto (bottom black blocks)";
         player.sendMessage((Text)Text.literal("\u00a76\u2500\u2500\u2500 Vehicle Wand Status \u2500\u2500\u2500"), false);
         player.sendMessage((Text)Text.literal(("\u00a77Current Mode: " + mode.title)), false);
         player.sendMessage((Text)Text.literal(("\u00a77Region: Corner 1: " + c1str + " \u00a77| Corner 2: " + c2str)), false);
         player.sendMessage((Text)Text.literal(("\u00a77Driver Seat: " + driverStr + " \u00a77| Passenger Seats: \u00a7d" + passengerCount)), false);
         player.sendMessage((Text)Text.literal(("\u00a77Wheels: " + wheelStr)), false);
+        if (plane.mode() == VehicleMode.PLANE) {
+            String setup = plane.isCompletePlane() && driver != null ? "\u00a7aREADY" : "\u00a7eNeeds driver + both wing tips";
+            player.sendMessage(Text.literal("\u00a7bPlane: " + setup + " \u00a77| Propellers: \u00a7e" + plane.propellerHubs().size()
+                + " \u00a77| Blades: \u00a7e" + plane.propellerBlades().size()), false);
+        } else {
+            player.sendMessage(Text.literal("\u00a77Vehicle Type: \u00a7fGROUND"), false);
+        }
         if (c1 != null && c2 != null) {
             player.sendMessage((Text)Text.literal("\u00a7a\u2714 Ready to activate! Switch to \u00a7a\u26a1 Activate Vehicle \u00a7amode and right-click!"), false);
         } else {
@@ -187,6 +238,8 @@ extends Item {
         tooltip.add((Text)Text.literal("  \u00a76\ud83d\udcba Set Driver Seat"));
         tooltip.add((Text)Text.literal("  \u00a7d\ud83d\udc65 Passenger Seats"));
         tooltip.add((Text)Text.literal("  \u00a7e\ud83d\ude97 Custom Wheels"));
+        tooltip.add(Text.literal("  \u00a7b\u2708 Plane / Nose & Wing Tips"));
+        tooltip.add(Text.literal("  \u00a7e\u2699 Multi-block Propellers"));
         tooltip.add((Text)Text.literal("  \u00a7a\u26a1 Activate Vehicle"));
         tooltip.add((Text)Text.literal(""));
         tooltip.add((Text)Text.literal("\u00a78HUD overlay & 3D outlines active while holding."));
@@ -232,6 +285,10 @@ extends Item {
         return PlayerDataStore.getCustomWheels(player.getUuid());
     }
 
+    public static PlaneSetup getPlaneSetup(PlayerEntity player) {
+        return PlayerDataStore.getPlaneSetup(player.getUuid());
+    }
+
     public static void clearCorners(PlayerEntity player) {
         PlayerDataStore.clear(player.getUuid());
         if (player instanceof ServerPlayerEntity) {
@@ -240,4 +297,3 @@ extends Item {
         }
     }
 }
-

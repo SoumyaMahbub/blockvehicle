@@ -12,6 +12,7 @@ import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import com.blockvehicle.vehicle.VehicleMode;
 
 @Environment(value=EnvType.CLIENT)
 public final class WandHud {
@@ -42,7 +43,8 @@ public final class WandHud {
         int wheelCount = ClientWandStore.getCustomWheels().size();
         boolean ready = ClientWandStore.isReadyToActivate();
         int cardW = 195;
-        int cardH = 115;
+        boolean planeMode = ClientWandStore.getVehicleMode() == VehicleMode.PLANE;
+        int cardH = planeMode ? 130 : 115;
         int cardX = screenW - cardW - 12;
         int cardY = 12;
         context.fill(cardX, cardY, cardX + cardW, cardY + cardH, -586213590);
@@ -56,6 +58,9 @@ public final class WandHud {
             case PlayerDataStore.WandMode.SET_DRIVER_SEAT -> -19712;
             case PlayerDataStore.WandMode.SET_PASSENGER_SEAT -> -2080517;
             case PlayerDataStore.WandMode.SET_WHEEL -> -28416;
+            case PlayerDataStore.WandMode.SET_PLANE_NOSE -> -16733441;
+            case PlayerDataStore.WandMode.SET_WING_TIPS -> -2080517;
+            case PlayerDataStore.WandMode.SET_PROPELLER -> -28416;
             case PlayerDataStore.WandMode.ACTIVATE -> -16718218;
         };
         context.fill(cardX + 4, cardY + 4, cardX + cardW - 4, cardY + 6, themeColor);
@@ -66,6 +71,9 @@ public final class WandHud {
             case PlayerDataStore.WandMode.SET_DRIVER_SEAT -> "\ud83d\udcba DRIVER SEAT";
             case PlayerDataStore.WandMode.SET_PASSENGER_SEAT -> "\ud83d\udc65 PASSENGER SEAT";
             case PlayerDataStore.WandMode.SET_WHEEL -> "\ud83d\ude97 WHEEL CONFIG";
+            case PlayerDataStore.WandMode.SET_PLANE_NOSE -> "\u2708 PLANE / NOSE";
+            case PlayerDataStore.WandMode.SET_WING_TIPS -> "\u2194 WING TIPS";
+            case PlayerDataStore.WandMode.SET_PROPELLER -> "\u2699 PROPELLER";
             case PlayerDataStore.WandMode.ACTIVATE -> "\u26a1 ACTIVATE";
         };
         int badgeW = tr.getWidth(modeName) + 10;
@@ -92,11 +100,17 @@ public final class WandHud {
         if (driver != null) {
             context.drawText(tr, (Text)Text.literal(("\u00a77Driver: \u00a76" + driver.toShortString() + " \u00a78(" + driverFacing.asString().toUpperCase() + ")")), cardX + 8, rowY, -1, false);
         } else {
-            context.drawText(tr, (Text)Text.literal("\u00a77Driver: \u00a78Auto (stairs/front)"), cardX + 8, rowY, -1, false);
+            context.drawText(tr, Text.literal(planeMode ? "\u00a77Driver: \u00a7cRequired for Plane Mode" : "\u00a77Driver: \u00a78Auto (stairs/front)"), cardX + 8, rowY, -1, false);
         }
         Object passStr = passCount > 0 ? "\u00a7d" + passCount + " seats" : "\u00a780 seats";
         Object wheelStr = wheelCount > 0 ? "\u00a7e" + wheelCount + " wheels" : "\u00a78auto";
         context.drawText(tr, (Text)Text.literal(("\u00a77Config: " + passStr + " \u00a77| " + wheelStr)), cardX + 8, rowY += 12, -1, false);
+        if (planeMode) {
+            String nose = ClientWandStore.getPlaneNose() != null ? "\u00a7aNose" : "\u00a78Nose(auto)";
+            String wings = ClientWandStore.getLeftWingTip() != null && ClientWandStore.getRightWingTip() != null ? "\u00a7aWings" : "\u00a7cWings missing";
+            int props = ClientWandStore.getPropellerHubs().size();
+            context.drawText(tr, Text.literal("\u00a77Plane: " + nose + " \u00a77| " + wings + " \u00a77| \u00a7e" + props + " prop"), cardX + 8, rowY += 12, -1, false);
+        }
         rowY += 14;
         if (ready) {
             context.fill(cardX + 8, rowY, cardX + cardW - 8, rowY + 14, 855697014);

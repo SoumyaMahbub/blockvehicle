@@ -24,6 +24,10 @@ public final class VehicleHud {
             return;
         }
         VehicleEntity ve = (VehicleEntity)vehicle;
+        if (ve.isPlane()) {
+            renderPlane(context, client, ve);
+            return;
+        }
         int screenW = context.getScaledWindowWidth();
         int screenH = context.getScaledWindowHeight();
         float speedBPT = Math.abs(ve.getSpeed());
@@ -43,9 +47,31 @@ public final class VehicleHud {
         context.fill(barX, barY, barX + (int)((float)barW * fraction), barY + barH, barColor);
         context.drawText(client.textRenderer, (Text)Text.literal(String.format("%.1f m/s", Float.valueOf(speedBPS))), barX, barY + 10, -1, true);
         boolean isReversing = ve.getSpeed() < -0.005f;
-        String dir = isReversing ? "\u00a7cREVERSING" : "\u00a7aDRIVING";
+        String dir = ve.getDriftAmount() > 0.22f ? "\u00a7eDRIFTING" : (isReversing ? "\u00a7cREVERSING" : "\u00a7aDRIVING");
         context.drawText(client.textRenderer, (Text)Text.literal(dir), barX, barY + 20, -1, true);
-        context.drawText(client.textRenderer, (Text)Text.literal("\u00a77[SHIFT] Exit  [SPACE] Brake"), panelX + 5, panelY + panelH - 12, -5592406, false);
+        context.drawText(client.textRenderer, (Text)Text.literal("\u00a77[SHIFT] Exit  [SPACE] Brake / Drift"), panelX + 5, panelY + panelH - 12, -5592406, false);
+    }
+
+    private static void renderPlane(DrawContext context, MinecraftClient client, VehicleEntity plane) {
+        int screenH = context.getScaledWindowHeight();
+        int panelX = 10;
+        int panelY = screenH - 90;
+        int panelW = 268;
+        int panelH = 80;
+        context.fill(panelX, panelY, panelX + panelW, panelY + panelH, -2013265920);
+        int accent = plane.getStallAmount() > 0.55f ? 0xFFFF3A2F : 0xFF35CFFF;
+        context.fill(panelX, panelY, panelX + 3, panelY + panelH, accent);
+        String status = plane.getStallAmount() > 0.55f ? "\u00a7c\u00a7lSTALL"
+            : "\u00a7b\u2708 " + plane.getPlaneFlightState().name().replace('_', ' ');
+        context.drawText(client.textRenderer, Text.literal(status), panelX + 9, panelY + 7, -1, true);
+        context.drawText(client.textRenderer, Text.literal(String.format("\u00a77Throttle: \u00a7f%3.0f%%   \u00a77Airspeed: \u00a7f%.1f m/s",
+            plane.getThrottle() * 100.0f, plane.getPlaneVelocity().length() * 20.0)), panelX + 9, panelY + 20, -1, false);
+        context.drawText(client.textRenderer, Text.literal(String.format("\u00a77Altitude: \u00a7f%.0f   \u00a77Vertical: %s%.1f m/s",
+            plane.getY(), plane.getPlaneVelocity().y >= 0.0 ? "\u00a7a+" : "\u00a7c", plane.getPlaneVelocity().y * 20.0)), panelX + 9, panelY + 31, -1, false);
+        context.drawText(client.textRenderer, Text.literal(String.format("\u00a77AoA: \u00a7f%.0f\u00b0   \u00a77RPM: \u00a7f%3.0f%%",
+            plane.getAngleOfAttack(), plane.getEngineRpm() * 100.0f)), panelX + 9, panelY + 42, -1, false);
+        context.drawText(client.textRenderer, Text.literal("\u00a78W/S Throttle  A/D Roll  Q/E Rudder"), panelX + 7, panelY + 56, -5592406, false);
+        context.drawText(client.textRenderer, Text.literal("\u00a78\u2191/\u2193 Pitch  Alt Stunt  Space Airbrake  Shift Exit"), panelX + 7, panelY + 67, -5592406, false);
     }
 
     private static int blendColor(int a, int b, float t) {
@@ -61,4 +87,3 @@ public final class VehicleHud {
         return 0xFF000000 | r << 16 | g << 8 | bv;
     }
 }
-

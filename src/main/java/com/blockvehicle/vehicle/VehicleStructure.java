@@ -57,6 +57,14 @@ public class VehicleStructure {
     private final Vec3d localOrigin;
     private final float initialYaw;
     private final float totalMass;
+    private final VehicleMode mode;
+    private final PlaneDefinition planeDefinition;
+    private final double minLocalX;
+    private final double minLocalY;
+    private final double minLocalZ;
+    private final double maxLocalX;
+    private final double maxLocalY;
+    private final double maxLocalZ;
 
     public static float getBlockMass(BlockState state) {
         if (state == null || state.isAir()) {
@@ -108,6 +116,13 @@ public class VehicleStructure {
     }
 
     public VehicleStructure(List<StoredBlock> blocks, List<SeatData> seats, List<WheelData> wheels, List<StoredItemFrame> itemFrames, int width, int height, int length, Vec3d localOrigin, float initialYaw) {
+        this(blocks, seats, wheels, itemFrames, width, height, length, localOrigin, initialYaw, VehicleMode.GROUND, null);
+    }
+
+    public VehicleStructure(List<StoredBlock> blocks, List<SeatData> seats, List<WheelData> wheels,
+                            List<StoredItemFrame> itemFrames, int width, int height, int length,
+                            Vec3d localOrigin, float initialYaw, VehicleMode mode,
+                            PlaneDefinition planeDefinition) {
         this.blocks = Collections.unmodifiableList(new ArrayList<StoredBlock>(blocks));
         Map<BlockPos, StoredBlock> byPosition = new HashMap<>();
         for (StoredBlock block : blocks) {
@@ -163,11 +178,31 @@ public class VehicleStructure {
         this.length = length;
         this.localOrigin = localOrigin;
         this.initialYaw = initialYaw;
+        this.mode = mode != null ? mode : VehicleMode.GROUND;
+        this.planeDefinition = this.mode == VehicleMode.PLANE ? planeDefinition : null;
         float f = 0.0f;
+        double minX = Double.POSITIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY;
+        double minZ = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY;
+        double maxY = Double.NEGATIVE_INFINITY;
+        double maxZ = Double.NEGATIVE_INFINITY;
         for (StoredBlock b : this.blocks) {
             f += VehicleStructure.getBlockMass(b.state());
+            minX = Math.min(minX, b.rx() - 0.5);
+            minY = Math.min(minY, b.ry());
+            minZ = Math.min(minZ, b.rz() - 0.5);
+            maxX = Math.max(maxX, b.rx() + 0.5);
+            maxY = Math.max(maxY, b.ry() + 1.0);
+            maxZ = Math.max(maxZ, b.rz() + 0.5);
         }
         this.totalMass = Math.max(f += (float)this.itemFrames.size() * 0.05f, 1.0f);
+        this.minLocalX = Double.isFinite(minX) ? minX : -0.5;
+        this.minLocalY = Double.isFinite(minY) ? minY : 0.0;
+        this.minLocalZ = Double.isFinite(minZ) ? minZ : -0.5;
+        this.maxLocalX = Double.isFinite(maxX) ? maxX : 0.5;
+        this.maxLocalY = Double.isFinite(maxY) ? maxY : 1.0;
+        this.maxLocalZ = Double.isFinite(maxZ) ? maxZ : 0.5;
     }
 
     public List<StoredBlock> getBlocks() {
@@ -238,6 +273,29 @@ public class VehicleStructure {
         return this.totalMass;
     }
 
+    public VehicleMode getMode() {
+        return this.mode;
+    }
+
+    public boolean isPlane() {
+        return this.mode == VehicleMode.PLANE && this.planeDefinition != null;
+    }
+
+    public PlaneDefinition getPlaneDefinition() {
+        return this.planeDefinition;
+    }
+
+    public boolean isPropellerBlade(double rx, double ry, double rz) {
+        return this.planeDefinition != null && this.planeDefinition.isPropellerBlade(rx, ry, rz);
+    }
+
+    public double getMinLocalX() { return this.minLocalX; }
+    public double getMinLocalY() { return this.minLocalY; }
+    public double getMinLocalZ() { return this.minLocalZ; }
+    public double getMaxLocalX() { return this.maxLocalX; }
+    public double getMaxLocalY() { return this.maxLocalY; }
+    public double getMaxLocalZ() { return this.maxLocalZ; }
+
     public List<SeatData> getDriverSeats() {
         return this.seats.stream().filter(s -> s.isDriver).toList();
     }
@@ -248,6 +306,7 @@ public class VehicleStructure {
 
     public NbtCompound toNbt() {
         NbtCompound tag = new NbtCompound();
+        tag.putInt("schemaVersion", 2);
         NbtList blockList = new NbtList();
         for (StoredBlock storedBlock : this.blocks) {
             blockList.add(storedBlock.toNbt());
@@ -275,6 +334,10 @@ public class VehicleStructure {
         tag.putDouble("originY", this.localOrigin.y);
         tag.putDouble("originZ", this.localOrigin.z);
         tag.putFloat("initialYaw", this.initialYaw);
+        tag.putString("vehicleMode", this.mode.name());
+        if (this.planeDefinition != null) {
+            tag.put("plane", this.planeDefinition.toNbt());
+        }
         return tag;
     }
 
@@ -308,7 +371,15 @@ public class VehicleStructure {
         int l = tag.getInt("length");
         Vec3d origin = new Vec3d(tag.getDouble("originX"), tag.getDouble("originY"), tag.getDouble("originZ"));
         float yaw = tag.getFloat("initialYaw");
-        return new VehicleStructure(blocks, seats, wheels, itemFrames, w, h, l, origin, yaw);
+        VehicleMode mode = tag.contains("vehicleMode") ? VehicleMode.byName(tag.getString("vehicleMode")) : VehicleMode.GROUND;
+        PlaneDefinition plane = mode == VehicleMode.PLANE && tag.contains("plane")
+            ? PlaneDefinition.fromNbt(tag.getCompound("plane")) : null;
+        if (mode == VehicleMode.PLANE && (plane == null || plane.nose() == null
+            || plane.leftWingTip() == null || plane.rightWingTip() == null)) {
+            mode = VehicleMode.GROUND;
+            plane = null;
+        }
+        return new VehicleStructure(blocks, seats, wheels, itemFrames, w, h, l, origin, yaw, mode, plane);
     }
 
     public record StoredBlock(BlockState state, double rx, double ry, double rz, NbtCompound blockEntityNbt) {
@@ -343,16 +414,10 @@ public class VehicleStructure {
 
         public static StoredBlock fromNbt(NbtCompound tag) {
             BlockState state = null;
-            if (tag.contains("rawId")) {
-                int rawId = tag.getInt("rawId");
-                state = Block.getStateFromRawId((int)rawId);
-            }
-            if (state == null) {
-                String id = tag.getString("id");
-                Block block = (Block)Registries.BLOCK.get(Identifier.of(id));
-                if (block == null) {
-                    block = Blocks.AIR;
-                }
+            if (tag.contains("id")) {
+                Identifier identifier = Identifier.tryParse(tag.getString("id"));
+                Block block = identifier != null && Registries.BLOCK.containsId(identifier)
+                    ? Registries.BLOCK.get(identifier) : Blocks.AIR;
                 state = block.getDefaultState();
                 if (tag.contains("props")) {
                     NbtCompound props = tag.getCompound("props");
@@ -366,6 +431,10 @@ public class VehicleStructure {
                     }
                 }
             }
+            if (state == null && tag.contains("rawId")) {
+                state = Block.getStateFromRawId(tag.getInt("rawId"));
+            }
+            if (state == null) state = Blocks.AIR.getDefaultState();
             double rx = tag.contains("rx", 6) ? tag.getDouble("rx") : (double)tag.getInt("rx");
             double ry = tag.contains("ry", 6) ? tag.getDouble("ry") : (double)tag.getInt("ry");
             double rz = tag.contains("rz", 6) ? tag.getDouble("rz") : (double)tag.getInt("rz");

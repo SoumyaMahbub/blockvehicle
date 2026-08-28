@@ -6,6 +6,11 @@
   "entity.blockvehicle.vehicle": "Vehicle",
 
   "key.blockvehicle.horn": "Vehicle Horn",
+  "key.blockvehicle.plane_pitch_up": "Plane Pitch Up",
+  "key.blockvehicle.plane_pitch_down": "Plane Pitch Down",
+  "key.blockvehicle.plane_yaw_left": "Plane Rudder Left",
+  "key.blockvehicle.plane_yaw_right": "Plane Rudder Right",
+  "key.blockvehicle.plane_stunt": "Plane Stunt / Reduced Assist",
   "category.blockvehicle": "Block Vehicle",
 
   "subtitles.blockvehicle.engine_idle": "Engine idles",

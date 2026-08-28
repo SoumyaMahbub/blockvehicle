@@ -11,12 +11,14 @@ import com.blockvehicle.client.wand.ClientWandStore;
 import com.blockvehicle.entity.VehicleEntity;
 import com.blockvehicle.network.VehicleSyncPayload;
 import com.blockvehicle.network.VehicleImpactPayload;
+import com.blockvehicle.network.PlaneSyncPayload;
 import com.blockvehicle.network.WandSyncPayload;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
@@ -57,7 +59,14 @@ implements ClientModInitializer {
                 vehicle.applyCollisionImpulse(payload.impulseX(), payload.impulseY(), payload.impulseZ(), payload.angularImpulse());
             }
         }));
+        ClientPlayNetworking.registerGlobalReceiver(PlaneSyncPayload.ID, (payload, context) -> context.client().execute(() -> {
+            MinecraftClient client = context.client();
+            if (client.world == null) return;
+            Entity entity = client.world.getEntityById(payload.entityId());
+            if (entity instanceof VehicleEntity vehicle) vehicle.applyPlaneServerTelemetry(payload);
+        }));
         ClientPlayNetworking.registerGlobalReceiver(WandSyncPayload.ID, (payload, context) -> context.client().execute(() -> ClientWandStore.applySync(payload)));
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientWandStore.reset());
         ClientTickEvents.START_CLIENT_TICK.register(VehicleInputHandler::onStartTick);
         ClientTickEvents.END_CLIENT_TICK.register(VehicleInputHandler::onEndTick);
         ClientTickEvents.END_CLIENT_TICK.register(VehicleSoundManager::onClientTick);

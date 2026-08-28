@@ -1,6 +1,8 @@
 package com.blockvehicle.item;
 
 import com.blockvehicle.network.WandSyncPayload;
+import com.blockvehicle.vehicle.PlaneSetup;
+import com.blockvehicle.vehicle.VehicleMode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -21,6 +23,14 @@ public final class PlayerDataStore {
     private static final Map<UUID, Direction> driverFacingMap = new HashMap<UUID, Direction>();
     private static final Map<UUID, Set<BlockPos>> passengerSeatsMap = new HashMap<UUID, Set<BlockPos>>();
     private static final Map<UUID, Set<BlockPos>> customWheelsMap = new HashMap<UUID, Set<BlockPos>>();
+    private static final Map<UUID, VehicleMode> vehicleModeMap = new HashMap<>();
+    private static final Map<UUID, BlockPos> planeNoseMap = new HashMap<>();
+    private static final Map<UUID, BlockPos> leftWingMap = new HashMap<>();
+    private static final Map<UUID, BlockPos> rightWingMap = new HashMap<>();
+    private static final Map<UUID, Set<BlockPos>> propellerHubsMap = new HashMap<>();
+    private static final Map<UUID, Set<BlockPos>> propellerBladesMap = new HashMap<>();
+    private static final Map<UUID, Map<BlockPos, Direction>> propellerAxesMap = new HashMap<>();
+    private static final Map<UUID, Set<BlockPos>> counterClockwiseHubsMap = new HashMap<>();
 
     private PlayerDataStore() {
     }
@@ -92,6 +102,100 @@ public final class PlayerDataStore {
         return customWheelsMap.getOrDefault(uuid, Set.of());
     }
 
+    public static VehicleMode getVehicleMode(UUID uuid) {
+        return vehicleModeMap.getOrDefault(uuid, VehicleMode.GROUND);
+    }
+
+    public static void setPlaneNose(UUID uuid, BlockPos pos) {
+        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        planeNoseMap.put(uuid, pos);
+    }
+
+    public static void setLeftWingTip(UUID uuid, BlockPos pos) {
+        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        leftWingMap.put(uuid, pos);
+    }
+
+    public static void setRightWingTip(UUID uuid, BlockPos pos) {
+        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        rightWingMap.put(uuid, pos);
+    }
+
+    public static BlockPos getPlaneNose(UUID uuid) { return planeNoseMap.get(uuid); }
+    public static BlockPos getLeftWingTip(UUID uuid) { return leftWingMap.get(uuid); }
+    public static BlockPos getRightWingTip(UUID uuid) { return rightWingMap.get(uuid); }
+
+    public static boolean togglePropellerHub(UUID uuid, BlockPos pos) {
+        return togglePropellerHub(uuid, pos, Direction.SOUTH);
+    }
+
+    public static boolean togglePropellerHub(UUID uuid, BlockPos pos, Direction axis) {
+        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        Set<BlockPos> set = propellerHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>());
+        if (set.remove(pos)) {
+            propellerAxesMap.computeIfAbsent(uuid, ignored -> new HashMap<>()).remove(pos);
+            counterClockwiseHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>()).remove(pos);
+            return false;
+        }
+        set.add(pos);
+        propellerAxesMap.computeIfAbsent(uuid, ignored -> new HashMap<>()).put(pos, axis != null ? axis : Direction.SOUTH);
+        return true;
+    }
+
+    public static void setPropellerHub(UUID uuid, BlockPos pos, Direction axis, boolean clockwise) {
+        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        propellerHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>()).add(pos);
+        propellerAxesMap.computeIfAbsent(uuid, ignored -> new HashMap<>()).put(pos, axis != null ? axis : Direction.SOUTH);
+        Set<BlockPos> reversed = counterClockwiseHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>());
+        if (clockwise) reversed.remove(pos); else reversed.add(pos);
+    }
+
+    public static boolean togglePropellerSpin(UUID uuid, BlockPos pos) {
+        if (!getPropellerHubs(uuid).contains(pos)) return false;
+        Set<BlockPos> reversed = counterClockwiseHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>());
+        if (reversed.remove(pos)) return true;
+        reversed.add(pos);
+        return false;
+    }
+
+    public static boolean togglePropellerBlade(UUID uuid, BlockPos pos) {
+        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        Set<BlockPos> set = propellerBladesMap.computeIfAbsent(uuid, ignored -> new HashSet<>());
+        return set.remove(pos) ? false : set.add(pos);
+    }
+
+    public static Set<BlockPos> getPropellerHubs(UUID uuid) {
+        return propellerHubsMap.getOrDefault(uuid, Set.of());
+    }
+
+    public static Set<BlockPos> getPropellerBlades(UUID uuid) {
+        return propellerBladesMap.getOrDefault(uuid, Set.of());
+    }
+
+    public static Map<BlockPos, Direction> getPropellerAxes(UUID uuid) {
+        return propellerAxesMap.getOrDefault(uuid, Map.of());
+    }
+
+    public static Set<BlockPos> getCounterClockwiseHubs(UUID uuid) {
+        return counterClockwiseHubsMap.getOrDefault(uuid, Set.of());
+    }
+
+    public static PlaneSetup getPlaneSetup(UUID uuid) {
+        return new PlaneSetup(getVehicleMode(uuid), getPlaneNose(uuid), getLeftWingTip(uuid), getRightWingTip(uuid),
+            getPropellerHubs(uuid), getPropellerBlades(uuid), getPropellerAxes(uuid), getCounterClockwiseHubs(uuid));
+    }
+
+    public static void clearPlaneSetup(UUID uuid) {
+        vehicleModeMap.put(uuid, VehicleMode.GROUND);
+        planeNoseMap.remove(uuid);
+        leftWingMap.remove(uuid);
+        rightWingMap.remove(uuid);
+        propellerHubsMap.remove(uuid);
+        propellerBladesMap.remove(uuid);
+        propellerAxesMap.remove(uuid);
+        counterClockwiseHubsMap.remove(uuid);
+    }
+
     public static void clear(UUID uuid) {
         corner1Map.remove(uuid);
         corner2Map.remove(uuid);
@@ -99,6 +203,14 @@ public final class PlayerDataStore {
         driverFacingMap.remove(uuid);
         passengerSeatsMap.remove(uuid);
         customWheelsMap.remove(uuid);
+        vehicleModeMap.remove(uuid);
+        planeNoseMap.remove(uuid);
+        leftWingMap.remove(uuid);
+        rightWingMap.remove(uuid);
+        propellerHubsMap.remove(uuid);
+        propellerBladesMap.remove(uuid);
+        propellerAxesMap.remove(uuid);
+        counterClockwiseHubsMap.remove(uuid);
     }
 
     public static void syncToPlayer(ServerPlayerEntity player) {
@@ -113,7 +225,10 @@ public final class PlayerDataStore {
         Direction df = PlayerDataStore.getDriverFacing(uuid);
         ArrayList<BlockPos> passList = new ArrayList<BlockPos>(PlayerDataStore.getPassengerSeats(uuid));
         ArrayList<BlockPos> wheelList = new ArrayList<BlockPos>(PlayerDataStore.getCustomWheels(uuid));
-        WandSyncPayload pkt = new WandSyncPayload(mode.ordinal(), c1 != null, c1, c2 != null, c2, ds != null, ds, df, passList, wheelList);
+        PlaneSetup plane = getPlaneSetup(uuid);
+        WandSyncPayload pkt = new WandSyncPayload(mode.ordinal(), c1 != null, c1, c2 != null, c2, ds != null, ds, df,
+            passList, wheelList, plane.mode().ordinal(), plane.nose(), plane.leftWingTip(), plane.rightWingTip(),
+            new ArrayList<>(plane.propellerHubs()), new ArrayList<>(plane.propellerBlades()));
         ServerPlayNetworking.send((ServerPlayerEntity)player, (CustomPayload)pkt);
     }
 
@@ -122,6 +237,9 @@ public final class PlayerDataStore {
         SET_DRIVER_SEAT("\u00a76\ud83d\udcba Set Driver Seat", "Right-click any block to set as Driver Seat"),
         SET_PASSENGER_SEAT("\u00a7d\ud83d\udc65 Add/Remove Passenger Seat", "Right-click any block to toggle Passenger Seat"),
         SET_WHEEL("\u00a7e\ud83d\ude97 Add/Remove Wheel", "Right-click any block to toggle as rotating Wheel"),
+        SET_PLANE_NOSE("\u00a7b\u2708 Plane / Nose", "Right-click nose = Plane Mode | Sneak+Right-click = Ground Mode"),
+        SET_WING_TIPS("\u00a7d\u2194 Plane Wing Tips", "Right-click = Left Wing | Sneak+Right-click = Right Wing"),
+        SET_PROPELLER("\u00a7e\u2699 Plane Propeller", "Right-click hub face = Axis | Sneak hub = Reverse spin | Sneak blade = Toggle"),
         ACTIVATE("\u00a7a\u26a1 Activate Vehicle", "Right-click in air or on build to activate!");
 
         public final String title;
@@ -138,4 +256,3 @@ public final class PlayerDataStore {
         }
     }
 }
-

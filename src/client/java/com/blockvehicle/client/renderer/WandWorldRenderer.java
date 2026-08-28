@@ -74,6 +74,21 @@ public final class WandWorldRenderer {
         for (BlockPos wPos : wheels) {
             WandWorldRenderer.drawBlockBox(mat, lines, quads, wPos, 1.0f, 0.55f, 0.0f, 0.95f, 0.22f);
         }
+        if (ClientWandStore.getPlaneNose() != null) {
+            WandWorldRenderer.drawBlockBox(mat, lines, quads, ClientWandStore.getPlaneNose(), 0.1f, 0.8f, 1.0f, 1.0f, 0.25f);
+        }
+        if (ClientWandStore.getLeftWingTip() != null) {
+            WandWorldRenderer.drawBlockBox(mat, lines, quads, ClientWandStore.getLeftWingTip(), 1.0f, 0.2f, 0.8f, 1.0f, 0.22f);
+        }
+        if (ClientWandStore.getRightWingTip() != null) {
+            WandWorldRenderer.drawBlockBox(mat, lines, quads, ClientWandStore.getRightWingTip(), 0.3f, 0.4f, 1.0f, 1.0f, 0.22f);
+        }
+        for (BlockPos hub : ClientWandStore.getPropellerHubs()) {
+            WandWorldRenderer.drawBlockBox(mat, lines, quads, hub, 1.0f, 0.75f, 0.0f, 1.0f, 0.3f);
+        }
+        for (BlockPos blade : ClientWandStore.getPropellerBlades()) {
+            WandWorldRenderer.drawBlockBox(mat, lines, quads, blade, 1.0f, 0.95f, 0.35f, 0.9f, 0.18f);
+        }
         HitResult hitResult = client.crosshairTarget;
         if (hitResult instanceof BlockHitResult) {
             BlockHitResult bhr = (BlockHitResult)hitResult;
@@ -100,6 +115,24 @@ public final class WandWorldRenderer {
                         tr = 1.0f;
                         tg = 0.55f;
                         tb = 0.0f;
+                        break;
+                    }
+                    case SET_PLANE_NOSE: {
+                        tr = 0.1f;
+                        tg = 0.8f;
+                        tb = 1.0f;
+                        break;
+                    }
+                    case SET_WING_TIPS: {
+                        tr = 0.95f;
+                        tg = 0.25f;
+                        tb = 0.8f;
+                        break;
+                    }
+                    case SET_PROPELLER: {
+                        tr = 1.0f;
+                        tg = 0.8f;
+                        tb = 0.1f;
                         break;
                     }
                     case ACTIVATE: {
@@ -173,4 +206,3 @@ public final class WandWorldRenderer {
         consumer.vertex(mat, x4, y4, z4).color(r, g, b, a);
     }
 }
-

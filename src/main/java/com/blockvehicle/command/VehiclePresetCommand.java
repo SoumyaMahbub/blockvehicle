@@ -1,6 +1,11 @@
 package com.blockvehicle.command;
 
 import com.blockvehicle.item.VehicleWandItem;
+import com.blockvehicle.item.PlayerDataStore;
+import com.blockvehicle.config.BlockVehicleConfig;
+import com.blockvehicle.vehicle.PlaneDefinition;
+import com.blockvehicle.vehicle.PlaneSetup;
+import com.blockvehicle.vehicle.VehicleMode;
 import com.blockvehicle.vehicle.VehicleActivator;
 import com.blockvehicle.vehicle.VehiclePresetState;
 import com.blockvehicle.vehicle.VehicleStructure;
@@ -21,7 +26,6 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Heightmap;
 
 public final class VehiclePresetCommand {
-    private static final int MAX_PRESET_BLOCKS = 8192;
     private static final int MAX_PRESETS = 64;
     private static final int MAX_NAME_LENGTH = 64;
 
@@ -63,18 +67,31 @@ public final class VehiclePresetCommand {
             player.sendMessage(Text.literal("\u00a7cThat selection is too large. Preset selection volume is limited to 32,768 blocks."), false);
             return 0;
         }
+        PlaneSetup planeSetup = VehicleWandItem.getPlaneSetup(player);
+        BlockPos customDriver = VehicleWandItem.getDriverSeat(player);
+        Direction driverFacing = VehicleWandItem.getDriverFacing(player);
+        String planeError = VehicleActivator.validatePlaneSetup(planeSetup, corner1, corner2, customDriver,
+            driverFacing != null ? driverFacing : player.getHorizontalFacing());
+        if (planeError == null) planeError = VehicleActivator.validateSelection(player.getServerWorld(), planeSetup,
+            corner1, corner2, customDriver);
+        if (planeError != null) {
+            player.sendMessage(Text.literal("\u00a7c" + planeError), false);
+            return 0;
+        }
         VehicleStructure structure = VehicleActivator.capturePreset(
             player.getServerWorld(), corner1, corner2,
-            VehicleWandItem.getDriverSeat(player), VehicleWandItem.getDriverFacing(player),
+            customDriver, driverFacing,
             VehicleWandItem.getPassengerSeats(player), VehicleWandItem.getCustomWheels(player),
+            planeSetup,
             player.getHorizontalFacing());
         int blockCount = structure.getBlocks().size();
         if (blockCount == 0) {
             player.sendMessage(Text.literal("\u00a7cNo blocks were found in the selected region."), false);
             return 0;
         }
-        if (blockCount > MAX_PRESET_BLOCKS) {
-            player.sendMessage(Text.literal("\u00a7cThat build has " + blockCount + " blocks; presets are limited to " + MAX_PRESET_BLOCKS + "."), false);
+        int maxBlocks = BlockVehicleConfig.get().maxVehicleBlocks;
+        if (blockCount > maxBlocks) {
+            player.sendMessage(Text.literal("\u00a7cThat build has " + blockCount + " blocks; presets are limited to " + maxBlocks + "."), false);
             return 0;
         }
         VehiclePresetState presetState = VehiclePresetState.get(player.getServer());
@@ -99,6 +116,11 @@ public final class VehiclePresetCommand {
             player.sendMessage(Text.literal("\u00a7cUnknown vehicle preset: \u00a7f" + name), false);
             return 0;
         }
+        int maxAxis = BlockVehicleConfig.get().maxVehicleAxis;
+        if (structure.getWidth() > maxAxis || structure.getHeight() > maxAxis || structure.getLength() > maxAxis) {
+            player.sendMessage(Text.literal("\u00a7cThat legacy preset exceeds the safe " + maxAxis + "-block axis limit."), false);
+            return 0;
+        }
         ServerWorld world = player.getServerWorld();
         Direction facing = player.getHorizontalFacing();
         double distance = Math.max(structure.getWidth(), structure.getLength()) / 2.0 + 3.0;
@@ -118,6 +140,7 @@ public final class VehiclePresetCommand {
             return 0;
         }
         VehicleActivator.deactivate(world, structure, origin, structure.getInitialYaw());
+        restorePresetMarkers(player, structure, origin);
         player.sendMessage(Text.literal("\u00a7aSpawned preset \u00a7f" + name + "\u00a7a on the surface in front of you."), false);
         return 1;
     }
@@ -150,5 +173,75 @@ public final class VehiclePresetCommand {
     private static String cleanName(String raw) {
         String name = raw.trim();
         return name.isEmpty() || name.length() > MAX_NAME_LENGTH ? null : name;
+    }
+
+    private static void restorePresetMarkers(ServerPlayerEntity player, VehicleStructure structure, Vec3d origin) {
+        java.util.UUID uuid = player.getUuid();
+        PlayerDataStore.clear(uuid);
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        int maxZ = Integer.MIN_VALUE;
+        for (VehicleStructure.StoredBlock block : structure.getBlocks()) {
+            BlockPos pos = worldPos(origin, block.rx(), block.ry(), block.rz());
+            minX = Math.min(minX, pos.getX());
+            minY = Math.min(minY, pos.getY());
+            minZ = Math.min(minZ, pos.getZ());
+            maxX = Math.max(maxX, pos.getX());
+            maxY = Math.max(maxY, pos.getY());
+            maxZ = Math.max(maxZ, pos.getZ());
+        }
+        if (minX != Integer.MAX_VALUE) {
+            PlayerDataStore.setCorner1(uuid, new BlockPos(minX, minY, minZ));
+            PlayerDataStore.setCorner2(uuid, new BlockPos(maxX, maxY, maxZ));
+        }
+        for (com.blockvehicle.vehicle.SeatData seat : structure.getSeats()) {
+            BlockPos pos = worldPos(origin, seat.rx, seat.ry - 0.1, seat.rz);
+            if (seat.isDriver) PlayerDataStore.setDriverSeat(uuid, pos, yawDirection(seat.yawOffset));
+            else PlayerDataStore.togglePassengerSeat(uuid, pos);
+        }
+        for (VehicleStructure.WheelData wheel : structure.getWheels()) {
+            PlayerDataStore.toggleWheel(uuid, worldPos(origin, wheel.rx(), wheel.ry(), wheel.rz()));
+        }
+        if (structure.getMode() == VehicleMode.PLANE && structure.getPlaneDefinition() != null) {
+            PlaneDefinition plane = structure.getPlaneDefinition();
+            PlayerDataStore.setPlaneNose(uuid, worldPos(origin, plane.nose().rx(), plane.nose().ry(), plane.nose().rz()));
+            PlayerDataStore.setLeftWingTip(uuid, worldPos(origin, plane.leftWingTip().rx(), plane.leftWingTip().ry(), plane.leftWingTip().rz()));
+            PlayerDataStore.setRightWingTip(uuid, worldPos(origin, plane.rightWingTip().rx(), plane.rightWingTip().ry(), plane.rightWingTip().rz()));
+            for (PlaneDefinition.PropellerAssembly propeller : plane.propellers()) {
+                PlayerDataStore.setPropellerHub(uuid,
+                    worldPos(origin, propeller.hub().rx(), propeller.hub().ry(), propeller.hub().rz()),
+                    axisDirection(propeller.axis()), propeller.clockwise());
+                for (PlaneDefinition.Point blade : propeller.blades()) {
+                    PlayerDataStore.togglePropellerBlade(uuid, worldPos(origin, blade.rx(), blade.ry(), blade.rz()));
+                }
+            }
+        }
+        PlayerDataStore.syncToPlayer(player);
+    }
+
+    private static BlockPos worldPos(Vec3d origin, double rx, double ry, double rz) {
+        return BlockPos.ofFloored(origin.x + rx, origin.y + ry, origin.z + rz);
+    }
+
+    private static Direction yawDirection(float yaw) {
+        int quadrant = Math.floorMod(Math.round(yaw / 90.0f), 4);
+        return switch (quadrant) {
+            case 1 -> Direction.WEST;
+            case 2 -> Direction.NORTH;
+            case 3 -> Direction.EAST;
+            default -> Direction.SOUTH;
+        };
+    }
+
+    private static Direction axisDirection(Vec3d axis) {
+        double ax = Math.abs(axis.x);
+        double ay = Math.abs(axis.y);
+        double az = Math.abs(axis.z);
+        if (ay >= ax && ay >= az) return axis.y >= 0.0 ? Direction.UP : Direction.DOWN;
+        if (ax >= az) return axis.x >= 0.0 ? Direction.EAST : Direction.WEST;
+        return axis.z >= 0.0 ? Direction.SOUTH : Direction.NORTH;
     }
 }

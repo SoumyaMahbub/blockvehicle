@@ -2,6 +2,7 @@ package com.blockvehicle.client.renderer;
 
 import com.blockvehicle.entity.VehicleEntity;
 import com.blockvehicle.vehicle.VehicleStructure;
+import com.blockvehicle.vehicle.PlaneDefinition;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 import org.joml.Vector3f;
 import org.joml.Matrix4fStack;
+import org.joml.Quaternionf;
 
 @Environment(value=EnvType.CLIENT)
 public class VehicleEntityRenderer
@@ -78,6 +80,11 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         state.steeringAngle = MathHelper.lerp((float)tickDelta, (float)entity.getPrevSteeringAngle(), (float)entity.getSteeringAngle());
         state.visualYOffset = MathHelper.lerp((float)tickDelta, (float)entity.getPrevVisualYOffset(), (float)entity.getVisualYOffset());
         state.tiltLift = MathHelper.lerp((float)tickDelta, (float)entity.getPrevTiltLift(), (float)entity.getTiltLift());
+        state.isPlane = entity.isPlane();
+        state.aircraftOrientation = entity.getPrevRelativeAircraftOrientation().slerp(entity.getRelativeAircraftOrientation(), tickDelta).normalize();
+        float propellerDelta = MathHelper.wrapDegrees(entity.getPropellerAngle() - entity.getPrevPropellerAngle());
+        state.propellerAngle = MathHelper.wrapDegrees(entity.getPrevPropellerAngle() + propellerDelta * tickDelta);
+        state.engineRpm = entity.getEngineRpm();
     }
 
     public void render(VehicleRenderState state, MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light) {
@@ -95,12 +102,19 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         }
         BlockRenderManager blockRenderManager = client.getBlockRenderManager();
         matrices.push();
-        matrices.translate(0.0, (double)(state.visualYOffset + state.tiltLift), 0.0);
-        float relativeYaw = state.vehicleYaw - state.initialYaw;
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-relativeYaw));
-        matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-state.pitch));
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(state.roll));
         VehicleStructure struct = state.structure;
+        matrices.translate(0.0, (double)(state.visualYOffset + (state.isPlane ? 0.0f : state.tiltLift)), 0.0);
+        if (state.isPlane && struct != null && struct.getPlaneDefinition() != null) {
+            net.minecraft.util.math.Vec3d pivot = struct.getPlaneDefinition().centerOfMass();
+            matrices.translate(pivot.x, pivot.y, pivot.z);
+            matrices.multiply(state.aircraftOrientation);
+            matrices.translate(-pivot.x, -pivot.y, -pivot.z);
+        } else {
+            float relativeYaw = state.vehicleYaw - state.initialYaw;
+            matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-relativeYaw));
+            matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-state.pitch));
+            matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(state.roll));
+        }
         float initYawRad = (float)Math.toRadians(state.initialYaw);
         float axleX = (float)Math.cos(initYawRad);
         float axleZ = (float)Math.sin(initYawRad);
@@ -116,17 +130,27 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
                 this.meshCache.put(state.entityId, cached);
             }
             cached.draw(matrices);
+            cached.drawPropellers(matrices, state.propellerAngle);
             dynamicBlocks = cached.dynamicBlocks;
         }
         for (VehicleStructure.StoredBlock sb : dynamicBlocks) {
             boolean isSteering;
             boolean isWheel = struct != null && struct.isWheel(sb.rx(), sb.ry(), sb.rz());
             boolean bl = isSteering = struct != null && struct.isSteeringWheel(sb.rx(), sb.ry(), sb.rz());
-            if (!isWheel && this.isBakedStaticBlock(sb)) {
+            PlaneDefinition.PropellerAssembly propeller = struct != null && struct.getPlaneDefinition() != null
+                ? struct.getPlaneDefinition().getPropellerForBlade(sb.rx(), sb.ry(), sb.rz()) : null;
+            if (!isWheel && propeller == null && this.isBakedStaticBlock(sb)) {
                 continue;
             }
             matrices.push();
-            if (isWheel) {
+            if (propeller != null) {
+                PlaneDefinition.Point hub = propeller.hub();
+                matrices.translate(hub.rx(), hub.ry() + 0.5, hub.rz());
+                Vector3f axis = new Vector3f((float)propeller.axis().x, (float)propeller.axis().y, (float)propeller.axis().z);
+                matrices.multiply(RotationAxis.of(axis).rotationDegrees(state.propellerAngle * (propeller.clockwise() ? 1.0f : -1.0f)));
+                matrices.translate(-hub.rx(), -(hub.ry() + 0.5), -hub.rz());
+                matrices.translate(sb.rx() - 0.5, sb.ry(), sb.rz() - 0.5);
+            } else if (isWheel) {
                 matrices.translate(sb.rx(), sb.ry() + 0.5, sb.rz());
                 if (isSteering) {
                     matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-state.steeringAngle));
@@ -191,7 +215,14 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         };
         MatrixStack buildMatrices = new MatrixStack();
         ArrayList<VehicleStructure.StoredBlock> dynamicBlocks = new ArrayList<>();
+        LinkedHashMap<PlaneDefinition.PropellerAssembly, List<VehicleStructure.StoredBlock>> propellerBlocks = new LinkedHashMap<>();
         for (VehicleStructure.StoredBlock block : structure.getRenderableBlocks()) {
+            PlaneDefinition.PropellerAssembly propeller = structure.getPlaneDefinition() != null
+                ? structure.getPlaneDefinition().getPropellerForBlade(block.rx(), block.ry(), block.rz()) : null;
+            if (propeller != null && this.isBakedStaticBlock(block)) {
+                propellerBlocks.computeIfAbsent(propeller, ignored -> new ArrayList<>()).add(block);
+                continue;
+            }
             if (structure.isWheel(block.rx(), block.ry(), block.rz()) || !this.isBakedStaticBlock(block)) {
                 dynamicBlocks.add(block);
                 continue;
@@ -214,7 +245,47 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
             }
             meshBuilder.allocator.close();
         }
-        return new CachedMesh(structure, layers, dynamicBlocks);
+        ArrayList<CachedPropellerMesh> propellerMeshes = new ArrayList<>();
+        for (Map.Entry<PlaneDefinition.PropellerAssembly, List<VehicleStructure.StoredBlock>> entry : propellerBlocks.entrySet()) {
+            propellerMeshes.add(new CachedPropellerMesh(entry.getKey(), this.buildBlockMesh(client, entry.getValue(), light)));
+        }
+        return new CachedMesh(structure, layers, dynamicBlocks, propellerMeshes);
+    }
+
+    private List<MeshLayer> buildBlockMesh(MinecraftClient client, List<VehicleStructure.StoredBlock> blocks, int light) {
+        BlockRenderManager renderer = client.getBlockRenderManager();
+        LinkedHashMap<RenderLayer, MeshBuilder> builders = new LinkedHashMap<>();
+        int estimatedBytes = Math.max(131_072, blocks.size() * 1536);
+        VertexConsumerProvider provider = layer -> {
+            MeshBuilder existing = builders.get(layer);
+            if (existing != null) return existing.builder;
+            BufferAllocator allocator = new BufferAllocator(Math.max(layer.getExpectedBufferSize(), estimatedBytes));
+            MeshBuilder created = new MeshBuilder(allocator,
+                new BufferBuilder(allocator, layer.getDrawMode(), layer.getVertexFormat()));
+            builders.put(layer, created);
+            return created.builder;
+        };
+        MatrixStack buildMatrices = new MatrixStack();
+        for (VehicleStructure.StoredBlock block : blocks) {
+            buildMatrices.push();
+            buildMatrices.translate(block.rx() - 0.5, block.ry(), block.rz() - 0.5);
+            renderer.renderBlockAsEntity(block.state(), buildMatrices, provider, light, OverlayTexture.DEFAULT_UV);
+            buildMatrices.pop();
+        }
+        ArrayList<MeshLayer> layers = new ArrayList<>();
+        for (Map.Entry<RenderLayer, MeshBuilder> entry : builders.entrySet()) {
+            MeshBuilder builder = entry.getValue();
+            BuiltBuffer built = builder.builder.endNullable();
+            if (built != null) {
+                VertexBuffer buffer = new VertexBuffer(GlUsage.STATIC_WRITE);
+                buffer.bind();
+                buffer.upload(built);
+                VertexBuffer.unbind();
+                layers.add(new MeshLayer(entry.getKey(), buffer));
+            }
+            builder.allocator.close();
+        }
+        return layers;
     }
 
     private void cleanupMeshCache(MinecraftClient client) {
@@ -266,6 +337,10 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         public float steeringAngle;
         public float visualYOffset;
         public float tiltLift;
+        public boolean isPlane;
+        public Quaternionf aircraftOrientation = new Quaternionf();
+        public float propellerAngle;
+        public float engineRpm;
     }
 
     private record MeshBuilder(BufferAllocator allocator, BufferBuilder builder) {
@@ -281,11 +356,19 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         private final VehicleStructure structure;
         private final List<MeshLayer> layers;
         private final List<VehicleStructure.StoredBlock> dynamicBlocks;
+        private final List<CachedPropellerMesh> propellerMeshes;
 
-        private CachedMesh(VehicleStructure structure, List<MeshLayer> layers, List<VehicleStructure.StoredBlock> dynamicBlocks) {
+        private CachedMesh(VehicleStructure structure, List<MeshLayer> layers,
+                           List<VehicleStructure.StoredBlock> dynamicBlocks,
+                           List<CachedPropellerMesh> propellerMeshes) {
             this.structure = structure;
             this.layers = layers;
             this.dynamicBlocks = dynamicBlocks;
+            this.propellerMeshes = propellerMeshes;
+        }
+
+        private void drawPropellers(MatrixStack matrices, float angle) {
+            for (CachedPropellerMesh propeller : this.propellerMeshes) propeller.draw(matrices, angle);
         }
 
         private void draw(MatrixStack matrices) {
@@ -305,6 +388,39 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
             for (MeshLayer layer : this.layers) {
                 layer.close();
             }
+            for (CachedPropellerMesh propeller : this.propellerMeshes) propeller.close();
+        }
+    }
+
+    private static final class CachedPropellerMesh {
+        private final PlaneDefinition.PropellerAssembly assembly;
+        private final List<MeshLayer> layers;
+
+        private CachedPropellerMesh(PlaneDefinition.PropellerAssembly assembly, List<MeshLayer> layers) {
+            this.assembly = assembly;
+            this.layers = layers;
+        }
+
+        private void draw(MatrixStack matrices, float angle) {
+            PlaneDefinition.Point hub = this.assembly.hub();
+            matrices.push();
+            matrices.translate(hub.rx(), hub.ry() + 0.5, hub.rz());
+            Vector3f axis = new Vector3f((float)this.assembly.axis().x, (float)this.assembly.axis().y,
+                (float)this.assembly.axis().z);
+            matrices.multiply(RotationAxis.of(axis).rotationDegrees(angle * (this.assembly.clockwise() ? 1.0f : -1.0f)));
+            matrices.translate(-hub.rx(), -(hub.ry() + 0.5), -hub.rz());
+            if (!this.layers.isEmpty()) {
+                Matrix4fStack modelView = RenderSystem.getModelViewStack();
+                modelView.pushMatrix();
+                modelView.mul(matrices.peek().getPositionMatrix());
+                for (MeshLayer layer : this.layers) layer.buffer.draw(layer.layer);
+                modelView.popMatrix();
+            }
+            matrices.pop();
+        }
+
+        private void close() {
+            for (MeshLayer layer : this.layers) layer.close();
         }
     }
 }

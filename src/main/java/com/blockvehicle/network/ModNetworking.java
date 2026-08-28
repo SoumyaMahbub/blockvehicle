@@ -17,8 +17,10 @@ import net.minecraft.sound.SoundCategory;
 public class ModNetworking {
     public static void registerServerHandlers() {
         PayloadTypeRegistry.playC2S().register(VehicleInputPayload.ID, VehicleInputPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(PlaneInputPayload.ID, PlaneInputPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(VehicleHornPayload.ID, VehicleHornPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(VehicleSyncPayload.ID, VehicleSyncPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(PlaneSyncPayload.ID, PlaneSyncPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(VehicleImpactPayload.ID, VehicleImpactPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(WandSyncPayload.ID, WandSyncPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(VehicleHornPayload.ID, (payload, context) -> context.server().execute(() -> {
@@ -39,6 +41,14 @@ public class ModNetworking {
                 }
                 ve.setInputState(new VehicleInputState(payload.forward(), payload.backward(), payload.left(), payload.right(), payload.brake()));
                 ve.applyClientDriverUpdate(payload.x(), payload.y(), payload.z(), payload.yaw(), payload.speed(), payload.pitch(), payload.roll());
+            }
+        }));
+        ServerPlayNetworking.registerGlobalReceiver(PlaneInputPayload.ID, (payload, context) -> context.server().execute(() -> {
+            ServerPlayerEntity player = context.player();
+            Entity ridden = player.getVehicle();
+            if (!(ridden instanceof VehicleEntity vehicle) || vehicle.getControllingPassenger() != player
+                || !vehicle.acceptPlaneInput(player.getUuid(), payload)) {
+                return;
             }
         }));
         BlockVehicleMod.LOGGER.info("ModNetworking: server handlers registered.");

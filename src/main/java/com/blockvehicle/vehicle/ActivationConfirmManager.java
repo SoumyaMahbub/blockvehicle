@@ -25,9 +25,10 @@ public final class ActivationConfirmManager {
     private ActivationConfirmManager() {
     }
 
-    public static void requestConfirmation(ServerWorld world, PlayerEntity player, BlockPos corner1, BlockPos corner2, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels) {
+    public static void requestConfirmation(ServerWorld world, PlayerEntity player, BlockPos corner1, BlockPos corner2, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, PlaneSetup planeSetup) {
         UUID uuid = player.getUuid();
-        pendingMap.put(uuid, new PendingActivation(world, corner1, corner2, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, player.getHorizontalFacing(), System.currentTimeMillis()));
+        pendingMap.put(uuid, new PendingActivation(world, corner1, corner2, customDriverSeat, customDriverFacing,
+            Set.copyOf(customPassengerSeats), Set.copyOf(customWheels), planeSetup, player.getHorizontalFacing(), System.currentTimeMillis()));
         MutableText button = Text.literal("  \u00a7a\u00a7l[ \u26a1 CLICK HERE TO ACTIVATE VEHICLE ]\u00a7r").styled(style -> style.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "confirm")).withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("\u00a7aClick to instantly assemble and activate your vehicle!"))).withUnderline(Boolean.valueOf(true)));
         player.sendMessage((Text)Text.literal("\u00a76\u26a1 Vehicle Assembly Ready:"), false);
         player.sendMessage((Text)button, false);
@@ -43,7 +44,7 @@ public final class ActivationConfirmManager {
     }
 
     public static void requestConfirmation(ServerWorld world, PlayerEntity player, BlockPos corner1, BlockPos corner2, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats) {
-        ActivationConfirmManager.requestConfirmation(world, player, corner1, corner2, customDriverSeat, customDriverFacing, customPassengerSeats, Set.of());
+        ActivationConfirmManager.requestConfirmation(world, player, corner1, corner2, customDriverSeat, customDriverFacing, customPassengerSeats, Set.of(), PlaneSetup.GROUND);
     }
 
     public static boolean onChatMessage(ServerPlayerEntity player, String message) {
@@ -59,7 +60,18 @@ public final class ActivationConfirmManager {
             player.sendMessage((Text)Text.literal("\u00a7cActivation expired! Trigger activation again and type \u00a7lconfirm\u00a7c."), true);
             return true;
         }
-        boolean success = VehicleCoreBlock.activateVehicle(pending.world, (PlayerEntity)player, pending.corner1, pending.corner2, pending.customDriverSeat, pending.customDriverFacing, pending.customPassengerSeats, pending.customWheels, pending.playerFacing);
+        if (player.getServerWorld() != pending.world) {
+            player.sendMessage(Text.literal("\u00a7cActivation cancelled because you changed dimensions."), true);
+            return true;
+        }
+        double centerX = (pending.corner1.getX() + pending.corner2.getX() + 1.0) * 0.5;
+        double centerY = (pending.corner1.getY() + pending.corner2.getY() + 1.0) * 0.5;
+        double centerZ = (pending.corner1.getZ() + pending.corner2.getZ() + 1.0) * 0.5;
+        if (player.squaredDistanceTo(centerX, centerY, centerZ) > 1024.0) {
+            player.sendMessage(Text.literal("\u00a7cActivation cancelled because you moved too far from the build."), true);
+            return true;
+        }
+        boolean success = VehicleCoreBlock.activateVehicle(pending.world, (PlayerEntity)player, pending.corner1, pending.corner2, pending.customDriverSeat, pending.customDriverFacing, pending.customPassengerSeats, pending.customWheels, pending.planeSetup, pending.playerFacing);
         if (!success) {
             player.sendMessage((Text)Text.literal("\u00a7cVehicle activation failed! Check your region selection."), true);
         }
@@ -88,7 +100,10 @@ public final class ActivationConfirmManager {
         return true;
     }
 
-    private record PendingActivation(ServerWorld world, BlockPos corner1, BlockPos corner2, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, Direction playerFacing, long timestamp) {
+    public static void cancel(UUID uuid) {
+        pendingMap.remove(uuid);
+    }
+
+    private record PendingActivation(ServerWorld world, BlockPos corner1, BlockPos corner2, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, PlaneSetup planeSetup, Direction playerFacing, long timestamp) {
     }
 }
-

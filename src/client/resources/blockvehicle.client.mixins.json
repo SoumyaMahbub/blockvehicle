@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "com.blockvehicle.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MinecraftClientInputMixin",
+    "PlaneCameraMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

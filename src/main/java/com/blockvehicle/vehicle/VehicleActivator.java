@@ -1,13 +1,17 @@
 package com.blockvehicle.vehicle;
 
+import com.blockvehicle.config.BlockVehicleConfig;
 import com.blockvehicle.ModBlocks;
 import com.blockvehicle.block.DriverSeatBlock;
 import com.blockvehicle.block.PassengerSeatBlock;
 import com.blockvehicle.vehicle.SeatData;
 import com.blockvehicle.vehicle.VehicleStructure;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 import net.minecraft.block.AbstractSignBlock;
 import net.minecraft.block.BannerBlock;
 import net.minecraft.block.Block;
@@ -110,7 +114,7 @@ public class VehicleActivator {
     }
 
     public static VehicleStructure activate(ServerWorld world, BlockPos min, BlockPos max) {
-        return VehicleActivator.activate(world, min, max, null, null, Set.of(), Set.of(), Direction.SOUTH);
+        return VehicleActivator.activate(world, min, max, null, null, Set.of(), Set.of(), PlaneSetup.GROUND, Direction.SOUTH);
     }
 
     public static VehicleStructure activate(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Direction defaultPlayerFacing) {
@@ -118,14 +122,22 @@ public class VehicleActivator {
     }
 
     public static VehicleStructure activate(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, Direction defaultPlayerFacing) {
-        return VehicleActivator.capture(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, defaultPlayerFacing, true);
+        return VehicleActivator.activate(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, PlaneSetup.GROUND, defaultPlayerFacing);
+    }
+
+    public static VehicleStructure activate(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, PlaneSetup planeSetup, Direction defaultPlayerFacing) {
+        return VehicleActivator.capture(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, planeSetup, defaultPlayerFacing, true);
     }
 
     public static VehicleStructure capturePreset(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, Direction defaultPlayerFacing) {
-        return VehicleActivator.capture(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, defaultPlayerFacing, false);
+        return VehicleActivator.capturePreset(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, PlaneSetup.GROUND, defaultPlayerFacing);
     }
 
-    private static VehicleStructure capture(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, Direction defaultPlayerFacing, boolean removeFromWorld) {
+    public static VehicleStructure capturePreset(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, PlaneSetup planeSetup, Direction defaultPlayerFacing) {
+        return VehicleActivator.capture(world, min, max, customDriverSeat, customDriverFacing, customPassengerSeats, customWheels, planeSetup, defaultPlayerFacing, false);
+    }
+
+    private static VehicleStructure capture(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat, Direction customDriverFacing, Set<BlockPos> customPassengerSeats, Set<BlockPos> customWheels, PlaneSetup planeSetup, Direction defaultPlayerFacing, boolean removeFromWorld) {
         double rz;
         double ry;
         double rx;
@@ -233,7 +245,14 @@ public class VehicleActivator {
             driverSeat = new SeatData(0.0, 0.1, 0.0, true, driverYaw);
         }
         seats.add(0, driverSeat);
-        float yawRad = (float)Math.toRadians(driverYaw);
+        VehicleMode vehicleMode = planeSetup != null ? planeSetup.mode() : VehicleMode.GROUND;
+        float vehicleYaw = driverYaw;
+        if (vehicleMode == VehicleMode.PLANE && planeSetup.isCompletePlane()) {
+            vehicleYaw = resolvePlaneYaw(planeSetup, cx, cz, driverSeat, driverYaw);
+        } else {
+            vehicleMode = VehicleMode.GROUND;
+        }
+        float yawRad = (float)Math.toRadians(vehicleYaw);
         double fwdX = -Math.sin(yawRad);
         double fwdZ = Math.cos(yawRad);
         double maxFwdProj = -1.7976931348623157E308;
@@ -248,7 +267,285 @@ public class VehicleActivator {
             boolean isSteering = Math.abs(proj - maxFwdProj) < 0.6;
             wheelDataList.add(new VehicleStructure.WheelData(rpos.x, rpos.y, rpos.z, isSteering));
         }
-        return new VehicleStructure(storedBlocks, seats, wheelDataList, storedFrames, width, height, length, origin, driverYaw);
+        PlaneDefinition planeDefinition = vehicleMode == VehicleMode.PLANE
+            ? buildPlaneDefinition(planeSetup, storedBlocks, cx, y0, cz, vehicleYaw)
+            : null;
+        return new VehicleStructure(storedBlocks, seats, wheelDataList, storedFrames, width, height, length,
+            origin, vehicleYaw, vehicleMode, planeDefinition);
+    }
+
+    private static PlaneDefinition buildPlaneDefinition(PlaneSetup setup, List<VehicleStructure.StoredBlock> blocks,
+                                                        double cx, int baseY, double cz, float driverYaw) {
+        float yawRadians = (float)Math.toRadians(driverYaw);
+        double forwardX = -Math.sin(yawRadians);
+        double forwardZ = Math.cos(yawRadians);
+        PlaneDefinition.Point nose = setup.nose() != null ? localPoint(setup.nose(), cx, baseY, cz) : null;
+        if (nose == null) {
+            VehicleStructure.StoredBlock front = blocks.stream().max(Comparator.comparingDouble(
+                block -> block.rx() * forwardX + block.rz() * forwardZ)).orElse(null);
+            nose = front != null ? new PlaneDefinition.Point(front.rx(), front.ry(), front.rz())
+                : new PlaneDefinition.Point(forwardX * 2.0, 0.0, forwardZ * 2.0);
+        }
+        PlaneDefinition.Point left = localPoint(setup.leftWingTip(), cx, baseY, cz);
+        PlaneDefinition.Point right = localPoint(setup.rightWingTip(), cx, baseY, cz);
+        // Builders naturally click the visible wing from their own perspective.
+        // Accept reversed clicks and normalize the stored left/right convention.
+        double rightX = -forwardZ;
+        double rightZ = forwardX;
+        double leftSide = left.rx() * rightX + left.rz() * rightZ;
+        double rightSide = right.rx() * rightX + right.rz() * rightZ;
+        if (leftSide > 0.0 && rightSide < 0.0) {
+            PlaneDefinition.Point swap = left;
+            left = right;
+            right = swap;
+        }
+        double totalMass = 0.0;
+        double massX = 0.0;
+        double massY = 0.0;
+        double massZ = 0.0;
+        for (VehicleStructure.StoredBlock block : blocks) {
+            double mass = VehicleStructure.getBlockMass(block.state());
+            totalMass += mass;
+            massX += block.rx() * mass;
+            massY += (block.ry() + 0.5) * mass;
+            massZ += block.rz() * mass;
+        }
+        Vec3d centerOfMass = totalMass > 1.0E-6
+            ? new Vec3d(massX / totalMass, massY / totalMass, massZ / totalMass) : Vec3d.ZERO;
+        Vec3d propellerAxis = new Vec3d(-Math.sin(yawRadians), 0.0, Math.cos(yawRadians));
+        Comparator<BlockPos> positionOrder = Comparator.comparingInt(BlockPos::getX)
+            .thenComparingInt(BlockPos::getY).thenComparingInt(BlockPos::getZ);
+        ArrayList<PlaneDefinition.Point> hubs = new ArrayList<>();
+        Map<PlaneDefinition.Point, BlockPos> hubSources = new HashMap<>();
+        setup.propellerHubs().stream().sorted(positionOrder).forEach(hub -> {
+            PlaneDefinition.Point local = localPoint(hub, cx, baseY, cz);
+            hubs.add(local);
+            hubSources.put(local, hub);
+        });
+        Map<PlaneDefinition.Point, ArrayList<PlaneDefinition.Point>> bladesByHub = new HashMap<>();
+        for (PlaneDefinition.Point hub : hubs) bladesByHub.put(hub, new ArrayList<>());
+        for (BlockPos bladePos : setup.propellerBlades().stream().sorted(positionOrder).toList()) {
+            PlaneDefinition.Point blade = localPoint(bladePos, cx, baseY, cz);
+            PlaneDefinition.Point closest = null;
+            double closestDistance = Double.POSITIVE_INFINITY;
+            for (PlaneDefinition.Point hub : hubs) {
+                double distance = blade.squaredDistanceTo(hub);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closest = hub;
+                }
+            }
+            if (closest != null) bladesByHub.get(closest).add(blade);
+        }
+        ArrayList<PlaneDefinition.PropellerAssembly> propellers = new ArrayList<>();
+        for (PlaneDefinition.Point hub : hubs) {
+            BlockPos sourceHub = hubSources.get(hub);
+            Direction configuredAxis = setup.propellerAxes().get(sourceHub);
+            Vec3d axis = configuredAxis != null
+                ? new Vec3d(configuredAxis.getOffsetX(), configuredAxis.getOffsetY(), configuredAxis.getOffsetZ())
+                : propellerAxis;
+            boolean clockwise = !setup.counterClockwiseHubs().contains(sourceHub);
+            propellers.add(new PlaneDefinition.PropellerAssembly(hub, axis,
+                bladesByHub.getOrDefault(hub, new ArrayList<>()), clockwise));
+        }
+        double wingDx = left.rx() - right.rx();
+        double wingDy = left.ry() - right.ry();
+        double wingDz = left.rz() - right.rz();
+        float wingSpan = (float)Math.sqrt(wingDx * wingDx + wingDy * wingDy + wingDz * wingDz);
+        float wingArea = Math.max(1.0f, wingSpan * Math.max(1.25f, (float)Math.sqrt(blocks.size()) * 0.22f));
+        float liftScale = MathHelper.clamp(0.62f + wingSpan / (float)Math.sqrt(Math.max(totalMass, 1.0)) * 0.34f
+            + wingArea / (float)Math.max(totalMass, 1.0) * 0.055f, 0.58f, 1.8f);
+        float takeoffSpeed = MathHelper.clamp((float)Math.sqrt(PlanePhysics.GRAVITY / (PlanePhysics.BASE_LIFT * liftScale)) * 1.08f, 0.30f, 0.78f);
+        Vec3d centerOfLift = new Vec3d((left.rx() + right.rx()) * 0.5,
+            (left.ry() + right.ry()) * 0.5 + 0.5, (left.rz() + right.rz()) * 0.5);
+        float balanceOffset = (float)((centerOfMass.x - centerOfLift.x) * forwardX
+            + (centerOfMass.z - centerOfLift.z) * forwardZ);
+        float leftDistance = (float)Math.abs(left.rx() * rightX + left.rz() * rightZ);
+        float rightDistance = (float)Math.abs(right.rx() * rightX + right.rz() * rightZ);
+        float asymmetry = Math.abs(leftDistance - rightDistance) / Math.max(1.0f, wingSpan);
+        int bladeCount = propellers.stream().mapToInt(propeller -> propeller.blades().size()).sum();
+        float enginePower = bladeCount > 0 ? MathHelper.clamp(0.55f + 0.18f * (float)Math.sqrt(bladeCount)
+            + 0.12f * Math.max(0, propellers.size() - 1), 0.65f, 1.8f) : 0.0f;
+        BlockVehicleConfig.Values config = BlockVehicleConfig.get();
+        liftScale *= (float)config.planeLiftMultiplier;
+        enginePower *= (float)config.planeThrustMultiplier;
+        VehicleStructure.StoredBlock tailBlock = blocks.stream().min(Comparator.comparingDouble(
+            block -> block.rx() * forwardX + block.rz() * forwardZ)).orElse(null);
+        VehicleStructure.StoredBlock topBlock = blocks.stream().max(Comparator.comparingDouble(VehicleStructure.StoredBlock::ry)).orElse(null);
+        VehicleStructure.StoredBlock bottomBlock = blocks.stream().min(Comparator.comparingDouble(VehicleStructure.StoredBlock::ry)).orElse(null);
+        ArrayList<PlaneDefinition.Point> priorityPoints = new ArrayList<>(List.of(nose, left, right));
+        for (VehicleStructure.StoredBlock block : new VehicleStructure.StoredBlock[]{tailBlock, topBlock, bottomBlock}) {
+            if (block == null) continue;
+            PlaneDefinition.Point point = new PlaneDefinition.Point(block.rx(), block.ry(), block.rz());
+            if (!priorityPoints.contains(point)) priorityPoints.add(point);
+        }
+        return new PlaneDefinition(nose, left, right, centerOfMass, centerOfLift, propellers, priorityPoints,
+            wingSpan, wingArea, liftScale, takeoffSpeed, enginePower, (float)config.planeDragMultiplier,
+            (float)config.planeControlAssist, balanceOffset, asymmetry);
+    }
+
+    private static PlaneDefinition.Point localPoint(BlockPos pos, double cx, int baseY, double cz) {
+        return new PlaneDefinition.Point(pos.getX() + 0.5 - cx, pos.getY() - baseY, pos.getZ() + 0.5 - cz);
+    }
+
+    public static String validatePlaneSetup(PlaneSetup setup, BlockPos min, BlockPos max,
+                                            BlockPos driverSeat, Direction fallbackFacing) {
+        if (setup == null || setup.mode() != VehicleMode.PLANE) {
+            return null;
+        }
+        if (!setup.isCompletePlane()) {
+            return "Plane Mode needs both wing-tip markers (the nose can fall back to driver-seat facing).";
+        }
+        double centerX = (Math.min(min.getX(), max.getX()) + Math.max(min.getX(), max.getX()) + 1.0) * 0.5;
+        double centerZ = (Math.min(min.getZ(), max.getZ()) + Math.max(min.getZ(), max.getZ()) + 1.0) * 0.5;
+        double referenceX = driverSeat != null ? driverSeat.getX() + 0.5 : centerX;
+        double referenceZ = driverSeat != null ? driverSeat.getZ() + 0.5 : centerZ;
+        double forwardX;
+        double forwardZ;
+        if (setup.nose() != null) {
+            forwardX = setup.nose().getX() + 0.5 - referenceX;
+            forwardZ = setup.nose().getZ() + 0.5 - referenceZ;
+            double forwardLength = Math.sqrt(forwardX * forwardX + forwardZ * forwardZ);
+            if (forwardLength < 0.75) {
+                return "The nose marker must be visibly in front of the driver/plane center.";
+            }
+            float snappedYaw = Math.round((float)Math.toDegrees(Math.atan2(-forwardX, forwardZ)) / 90.0f) * 90.0f;
+            forwardX = -Math.sin(Math.toRadians(snappedYaw));
+            forwardZ = Math.cos(Math.toRadians(snappedYaw));
+        } else {
+            Direction facing = fallbackFacing != null ? fallbackFacing : Direction.SOUTH;
+            float yaw = directionToYaw(facing);
+            forwardX = -Math.sin(Math.toRadians(yaw));
+            forwardZ = Math.cos(Math.toRadians(yaw));
+        }
+        double rightX = -forwardZ;
+        double rightZ = forwardX;
+        double leftSide = (setup.leftWingTip().getX() + 0.5 - centerX) * rightX
+            + (setup.leftWingTip().getZ() + 0.5 - centerZ) * rightZ;
+        double rightSide = (setup.rightWingTip().getX() + 0.5 - centerX) * rightX
+            + (setup.rightWingTip().getZ() + 0.5 - centerZ) * rightZ;
+        if (Math.abs(leftSide) < 0.35 || Math.abs(rightSide) < 0.35 || leftSide * rightSide >= 0.0) {
+            return "Left and right wing tips must be on opposite sides of the fuselage.";
+        }
+        double dx = setup.leftWingTip().getX() - setup.rightWingTip().getX();
+        double dy = setup.leftWingTip().getY() - setup.rightWingTip().getY();
+        double dz = setup.leftWingTip().getZ() - setup.rightWingTip().getZ();
+        if (dx * dx + dy * dy + dz * dz < 2.25) {
+            return "Wing tips need at least 1.5 blocks of separation.";
+        }
+        return null;
+    }
+
+    public static String validateSelection(ServerWorld world, PlaneSetup setup, BlockPos min, BlockPos max,
+                                           BlockPos customDriverSeat) {
+        BlockVehicleConfig.Values config = BlockVehicleConfig.get();
+        int width = Math.abs(max.getX() - min.getX()) + 1;
+        int height = Math.abs(max.getY() - min.getY()) + 1;
+        int length = Math.abs(max.getZ() - min.getZ()) + 1;
+        if (width > config.maxVehicleAxis || height > config.maxVehicleAxis || length > config.maxVehicleAxis) {
+            return "Each vehicle dimension is limited to " + config.maxVehicleAxis
+                + " blocks to prevent huge collision/tracking regions.";
+        }
+        if (setup == null || setup.mode() != VehicleMode.PLANE) return null;
+        if (!arePlaneMarkersInside(min, max, setup)) {
+            return "Every plane marker and propeller block must be inside the selected region.";
+        }
+        if (!hasDriverSeat(world, min, max, customDriverSeat)) {
+            return "Plane Mode needs a marked Driver Seat, Driver Seat block, or stair seat inside the selection.";
+        }
+        if (setup.propellerHubs().size() > config.maxPropellers) {
+            return "Planes are limited to " + config.maxPropellers + " propeller assemblies.";
+        }
+        if (setup.propellerBlades().size() > config.maxPropellerBladeBlocks) {
+            return "Plane propellers are limited to " + config.maxPropellerBladeBlocks + " blade blocks.";
+        }
+        if (setup.propellerHubs().isEmpty() != setup.propellerBlades().isEmpty()) {
+            return setup.propellerHubs().isEmpty()
+                ? "Propeller blade blocks need at least one hub."
+                : "Each propeller hub needs at least one blade block (or remove all hubs for a glider).";
+        }
+        for (BlockPos marker : List.of(setup.leftWingTip(), setup.rightWingTip())) {
+            if (world.getBlockState(marker).isAir()) return "Wing-tip markers must point to real selected blocks.";
+        }
+        if (setup.nose() != null && world.getBlockState(setup.nose()).isAir()) {
+            return "The nose marker must point to a real selected block.";
+        }
+        for (BlockPos hub : setup.propellerHubs()) {
+            if (world.getBlockState(hub).isAir()) return "Every propeller hub must be a real selected block.";
+            if (setup.propellerBlades().contains(hub)) return "A propeller hub cannot also be selected as a blade block.";
+        }
+        for (BlockPos blade : setup.propellerBlades()) {
+            if (world.getBlockState(blade).isAir()) return "Every propeller blade marker must point to a real selected block.";
+        }
+        if (!setup.propellerHubs().isEmpty()) {
+            java.util.HashMap<BlockPos, Integer> assigned = new java.util.HashMap<>();
+            for (BlockPos hub : setup.propellerHubs()) assigned.put(hub, 0);
+            for (BlockPos blade : setup.propellerBlades()) {
+                BlockPos closest = setup.propellerHubs().stream().min(Comparator.comparingDouble(hub -> hub.getSquaredDistance(blade))).orElse(null);
+                if (closest != null) assigned.put(closest, assigned.get(closest) + 1);
+            }
+            if (assigned.values().stream().anyMatch(count -> count == 0)) {
+                return "Every propeller hub must have at least one nearby blade assigned to it.";
+            }
+        }
+        return null;
+    }
+
+    public static boolean arePlaneMarkersInside(BlockPos a, BlockPos b, PlaneSetup setup) {
+        int minX = Math.min(a.getX(), b.getX());
+        int minY = Math.min(a.getY(), b.getY());
+        int minZ = Math.min(a.getZ(), b.getZ());
+        int maxX = Math.max(a.getX(), b.getX());
+        int maxY = Math.max(a.getY(), b.getY());
+        int maxZ = Math.max(a.getZ(), b.getZ());
+        java.util.function.Predicate<BlockPos> inside = pos -> pos != null && pos.getX() >= minX && pos.getX() <= maxX
+            && pos.getY() >= minY && pos.getY() <= maxY && pos.getZ() >= minZ && pos.getZ() <= maxZ;
+        if (setup.nose() != null && !inside.test(setup.nose())) return false;
+        if (!inside.test(setup.leftWingTip()) || !inside.test(setup.rightWingTip())) return false;
+        for (BlockPos pos : setup.propellerHubs()) if (!inside.test(pos)) return false;
+        for (BlockPos pos : setup.propellerBlades()) if (!inside.test(pos)) return false;
+        return true;
+    }
+
+    private static boolean hasDriverSeat(ServerWorld world, BlockPos min, BlockPos max, BlockPos customDriverSeat) {
+        int x0 = Math.min(min.getX(), max.getX());
+        int y0 = Math.min(min.getY(), max.getY());
+        int z0 = Math.min(min.getZ(), max.getZ());
+        int x1 = Math.max(min.getX(), max.getX());
+        int y1 = Math.max(min.getY(), max.getY());
+        int z1 = Math.max(min.getZ(), max.getZ());
+        if (customDriverSeat != null) {
+            return customDriverSeat.getX() >= x0 && customDriverSeat.getX() <= x1
+                && customDriverSeat.getY() >= y0 && customDriverSeat.getY() <= y1
+                && customDriverSeat.getZ() >= z0 && customDriverSeat.getZ() <= z1
+                && !world.getBlockState(customDriverSeat).isAir();
+        }
+        for (int x = x0; x <= x1; ++x) for (int y = y0; y <= y1; ++y) for (int z = z0; z <= z1; ++z) {
+            BlockState state = world.getBlockState(new BlockPos(x, y, z));
+            if (state.isOf(ModBlocks.DRIVER_SEAT) || state.getBlock() instanceof StairsBlock) return true;
+        }
+        return false;
+    }
+
+    private static float resolvePlaneYaw(PlaneSetup setup, double centerX, double centerZ,
+                                         SeatData driverSeat, float fallbackYaw) {
+        double referenceX = driverSeat != null ? driverSeat.rx : 0.0;
+        double referenceZ = driverSeat != null ? driverSeat.rz : 0.0;
+        if (setup.nose() == null) {
+            return MathHelper.wrapDegrees(Math.round(fallbackYaw / 90.0f) * 90.0f);
+        }
+        PlaneDefinition.Point nose = localPoint(setup.nose(), centerX, 0, centerZ);
+        double forwardX = nose.rx() - referenceX;
+        double forwardZ = nose.rz() - referenceZ;
+        if (forwardX * forwardX + forwardZ * forwardZ < 0.25) {
+            forwardX = nose.rx();
+            forwardZ = nose.rz();
+        }
+        if (forwardX * forwardX + forwardZ * forwardZ < 1.0E-6) {
+            return fallbackYaw;
+        }
+        float rawYaw = MathHelper.wrapDegrees((float)Math.toDegrees(Math.atan2(-forwardX, forwardZ)));
+        return MathHelper.wrapDegrees(Math.round(rawYaw / 90.0f) * 90.0f);
     }
 
     public static BlockRotation getBlockRotation(float relativeYaw) {
@@ -271,12 +568,14 @@ public class VehicleActivator {
         float yawRad = (float)Math.toRadians(relativeYaw);
         double cosY = Math.cos(yawRad);
         double sinY = Math.sin(yawRad);
+        java.util.HashSet<BlockPos> targets = new java.util.HashSet<>();
         for (VehicleStructure.StoredBlock block : structure.getBlocks()) {
             double wx = vehiclePos.x + (block.rx() * cosY - block.rz() * sinY);
             double wy = vehiclePos.y + block.ry();
             double wz = vehiclePos.z + (block.rx() * sinY + block.rz() * cosY);
             BlockPos pos = BlockPos.ofFloored(wx, wy, wz);
-            if (!world.isInBuildLimit(pos) || !world.getBlockState(pos).isReplaceable()) {
+            if (!targets.add(pos) || !world.isInBuildLimit(pos) || !world.getWorldBorder().contains(pos)
+                || !world.isChunkLoaded(pos) || !world.getBlockState(pos).isReplaceable()) {
                 return false;
             }
         }

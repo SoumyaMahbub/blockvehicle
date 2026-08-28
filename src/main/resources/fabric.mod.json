@@ -19,7 +19,9 @@
       "com.blockvehicle.client.BlockVehicleClient"
     ]
   },
-  "mixins": [],
+  "mixins": [
+    "blockvehicle.client.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.16.14",
     "fabric-api": "*",
