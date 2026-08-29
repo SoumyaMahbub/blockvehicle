@@ -87,7 +87,9 @@ public final class ClientWandStore {
 
     public static boolean isReadyToActivate() {
         return corner1 != null && corner2 != null
-            && (vehicleMode != VehicleMode.PLANE || driverSeat != null && leftWingTip != null && rightWingTip != null);
+            && (vehicleMode == VehicleMode.GROUND
+                || vehicleMode == VehicleMode.PLANE && driverSeat != null && leftWingTip != null && rightWingTip != null
+                || vehicleMode == VehicleMode.HELICOPTER && driverSeat != null && !propellerHubs.isEmpty() && !propellerBlades.isEmpty());
     }
 
     public static void reset() {

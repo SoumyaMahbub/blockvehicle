@@ -19,6 +19,56 @@
       }
     ]
   },
+  "bike_engine": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.bike_engine",
+    "sounds": [
+      {
+        "name": "blockvehicle:bike_engine",
+        "stream": false
+      }
+    ]
+  },
+  "car_engine_loop": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.car_engine_loop",
+    "sounds": [
+      {
+        "name": "blockvehicle:car_engine_loop",
+        "stream": false
+      }
+    ]
+  },
+  "heavy_engine": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.heavy_engine",
+    "sounds": [
+      {
+        "name": "blockvehicle:heavy_engine",
+        "stream": false
+      }
+    ]
+  },
+  "plane_engine": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.plane_engine",
+    "sounds": [
+      {
+        "name": "blockvehicle:plane_engine",
+        "stream": false
+      }
+    ]
+  },
+  "helicopter_rotor": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.helicopter_rotor",
+    "sounds": [
+      {
+        "name": "blockvehicle:plane_engine",
+        "stream": false
+      }
+    ]
+  },
   "engine_start": {
     "category": "neutral",
     "subtitle": "subtitles.blockvehicle.engine_start",
@@ -35,6 +85,16 @@
     "sounds": [
       {
         "name": "blockvehicle:engine_stop",
+        "stream": false
+      }
+    ]
+  },
+  "brake_soft": {
+    "category": "neutral",
+    "subtitle": "subtitles.blockvehicle.brake_soft",
+    "sounds": [
+      {
+        "name": "blockvehicle:brake_soft",
         "stream": false
       }
     ]

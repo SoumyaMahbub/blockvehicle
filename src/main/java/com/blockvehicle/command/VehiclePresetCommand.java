@@ -218,6 +218,17 @@ public final class VehiclePresetCommand {
                     PlayerDataStore.togglePropellerBlade(uuid, worldPos(origin, blade.rx(), blade.ry(), blade.rz()));
                 }
             }
+        } else if (structure.getMode() == VehicleMode.HELICOPTER && structure.getPlaneDefinition() != null) {
+            PlaneDefinition helicopter = structure.getPlaneDefinition();
+            PlayerDataStore.setHelicopterNose(uuid, worldPos(origin, helicopter.nose().rx(), helicopter.nose().ry(), helicopter.nose().rz()));
+            for (PlaneDefinition.PropellerAssembly rotor : helicopter.propellers()) {
+                PlayerDataStore.setPropellerHub(uuid,
+                    worldPos(origin, rotor.hub().rx(), rotor.hub().ry(), rotor.hub().rz()),
+                    axisDirection(rotor.axis()), rotor.clockwise());
+                for (PlaneDefinition.Point blade : rotor.blades()) {
+                    PlayerDataStore.togglePropellerBlade(uuid, worldPos(origin, blade.rx(), blade.ry(), blade.rz()));
+                }
+            }
         }
         PlayerDataStore.syncToPlayer(player);
     }

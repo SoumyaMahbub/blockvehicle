@@ -28,6 +28,10 @@ public final class VehicleHud {
             renderPlane(context, client, ve);
             return;
         }
+        if (ve.isHelicopter()) {
+            renderHelicopter(context, client, ve);
+            return;
+        }
         int screenW = context.getScaledWindowWidth();
         int screenH = context.getScaledWindowHeight();
         float speedBPT = Math.abs(ve.getSpeed());
@@ -56,12 +60,14 @@ public final class VehicleHud {
         int screenH = context.getScaledWindowHeight();
         int panelX = 10;
         int panelY = screenH - 90;
-        int panelW = 268;
+        int panelW = 310;
         int panelH = 80;
         context.fill(panelX, panelY, panelX + panelW, panelY + panelH, -2013265920);
         int accent = plane.getStallAmount() > 0.55f ? 0xFFFF3A2F : 0xFF35CFFF;
         context.fill(panelX, panelY, panelX + 3, panelY + panelH, accent);
+        boolean localStunt = plane.getControllingPassenger() == client.player && plane.getInputState().stunt;
         String status = plane.getStallAmount() > 0.55f ? "\u00a7c\u00a7lSTALL"
+            : localStunt ? "\u00a7d\u00a7lSTUNT \u00a7r\u00a7d✦"
             : "\u00a7b\u2708 " + plane.getPlaneFlightState().name().replace('_', ' ');
         context.drawText(client.textRenderer, Text.literal(status), panelX + 9, panelY + 7, -1, true);
         context.drawText(client.textRenderer, Text.literal(String.format("\u00a77Throttle: \u00a7f%3.0f%%   \u00a77Airspeed: \u00a7f%.1f m/s",
@@ -70,8 +76,27 @@ public final class VehicleHud {
             plane.getY(), plane.getPlaneVelocity().y >= 0.0 ? "\u00a7a+" : "\u00a7c", plane.getPlaneVelocity().y * 20.0)), panelX + 9, panelY + 31, -1, false);
         context.drawText(client.textRenderer, Text.literal(String.format("\u00a77AoA: \u00a7f%.0f\u00b0   \u00a77RPM: \u00a7f%3.0f%%",
             plane.getAngleOfAttack(), plane.getEngineRpm() * 100.0f)), panelX + 9, panelY + 42, -1, false);
-        context.drawText(client.textRenderer, Text.literal("\u00a78W/S Throttle  A/D Roll  Q/E Rudder"), panelX + 7, panelY + 56, -5592406, false);
-        context.drawText(client.textRenderer, Text.literal("\u00a78\u2191/\u2193 Pitch  Alt Stunt  Space Airbrake  Shift Exit"), panelX + 7, panelY + 67, -5592406, false);
+        context.drawText(client.textRenderer, Text.literal("\u00a78W/S Throttle  A/D Roll  LMB/RMB Rudder"), panelX + 7, panelY + 56, -5592406, false);
+        context.drawText(client.textRenderer, Text.literal("\u00a78\u2191/\u2193 Pitch  Hold Alt Stunt  Space Brake  Shift Exit"), panelX + 7, panelY + 67, -5592406, false);
+    }
+
+    private static void renderHelicopter(DrawContext context, MinecraftClient client, VehicleEntity helicopter) {
+        int screenH = context.getScaledWindowHeight();
+        int panelX = 10, panelY = screenH - 92, panelW = 320, panelH = 82;
+        context.fill(panelX, panelY, panelX + panelW, panelY + panelH, -2013265920);
+        int accent = helicopter.getStallAmount() > 0.50f ? 0xFFFF593D : 0xFF41E88B;
+        context.fill(panelX, panelY, panelX + 3, panelY + panelH, accent);
+        String status = helicopter.getStallAmount() > 0.50f ? "\u00a7c\u00a7lVORTEX RING - LOWER COLLECTIVE + MOVE"
+            : "\u00a7a HELICOPTER " + helicopter.getPlaneFlightState().name().replace('_', ' ');
+        context.drawText(client.textRenderer, Text.literal(status), panelX + 9, panelY + 7, -1, true);
+        context.drawText(client.textRenderer, Text.literal(String.format("\u00a77Collective: \u00a7f%3.0f%%   \u00a77Rotor RPM: \u00a7f%3.0f%%   \u00a77Speed: \u00a7f%.1f m/s",
+            helicopter.getThrottle() * 100.0f, helicopter.getEngineRpm() * 100.0f,
+            helicopter.getPlaneVelocity().length() * 20.0)), panelX + 9, panelY + 20, -1, false);
+        context.drawText(client.textRenderer, Text.literal(String.format("\u00a77Altitude: \u00a7f%.0f   \u00a77Vertical: %s%.1f m/s   \u00a77Disk tilt: \u00a7f%.0f\u00b0",
+            helicopter.getY(), helicopter.getPlaneVelocity().y >= 0.0 ? "\u00a7a+" : "\u00a7c",
+            helicopter.getPlaneVelocity().y * 20.0, helicopter.getAngleOfAttack())), panelX + 9, panelY + 32, -1, false);
+        context.drawText(client.textRenderer, Text.literal("\u00a78W/S Pitch  A/D Roll  LMB/RMB Yaw  Alt Precision"), panelX + 7, panelY + 55, -5592406, false);
+        context.drawText(client.textRenderer, Text.literal("\u00a78Space Collective Up  Left Ctrl Down  Shift Exit"), panelX + 7, panelY + 68, -5592406, false);
     }
 
     private static int blendColor(int a, int b, float t) {

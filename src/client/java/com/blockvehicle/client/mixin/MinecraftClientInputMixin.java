@@ -3,25 +3,45 @@ package com.blockvehicle.client.mixin;
 import com.blockvehicle.entity.VehicleEntity;
 import net.minecraft.client.MinecraftClient;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/** Prevents the plane rudder defaults from also dropping an item/opening inventory. */
+/** Reserves attack/use input for vehicle controls while the local player drives. */
 @Mixin(MinecraftClient.class)
 public abstract class MinecraftClientInputMixin {
-    @Inject(method = "handleInputEvents", at = @At("HEAD"))
-    private void blockvehicle$consumePlaneRudderBindings(CallbackInfo ci) {
+    @Unique
+    private boolean blockvehicle$isControllingVehicle() {
         MinecraftClient client = (MinecraftClient)(Object)this;
-        if (client.player == null || !(client.player.getVehicle() instanceof VehicleEntity plane)
-            || !plane.isPlane() || plane.getControllingPassenger() != client.player) {
-            return;
+        return client.player != null
+            && client.player.getVehicle() instanceof VehicleEntity vehicle
+            && vehicle.getControllingPassenger() == client.player;
+    }
+
+    @Inject(method = "doAttack", at = @At("HEAD"), cancellable = true)
+    private void blockvehicle$preventVehicleAttack(CallbackInfoReturnable<Boolean> cir) {
+        if (this.blockvehicle$isControllingVehicle()) {
+            cir.setReturnValue(false);
         }
-        while (client.options.dropKey.wasPressed()) {
-            // Q remains available to BlockVehicle's continuous keybinding.
+    }
+
+    @Inject(method = "doItemUse", at = @At("HEAD"), cancellable = true)
+    private void blockvehicle$preventVehicleItemUse(CallbackInfo ci) {
+        if (this.blockvehicle$isControllingVehicle()) {
+            ci.cancel();
         }
-        while (client.options.inventoryKey.wasPressed()) {
-            // E remains available to BlockVehicle's continuous keybinding.
+    }
+
+    @Inject(method = "handleBlockBreaking", at = @At("HEAD"), cancellable = true)
+    private void blockvehicle$preventVehicleMining(boolean breaking, CallbackInfo ci) {
+        if (this.blockvehicle$isControllingVehicle()) {
+            MinecraftClient client = (MinecraftClient)(Object)this;
+            if (client.interactionManager != null) {
+                client.interactionManager.cancelBlockBreaking();
+            }
+            ci.cancel();
         }
     }
 }

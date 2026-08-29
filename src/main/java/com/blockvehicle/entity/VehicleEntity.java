@@ -9,6 +9,7 @@ import com.blockvehicle.vehicle.AircraftOrientation;
 import com.blockvehicle.vehicle.PlaneDefinition;
 import com.blockvehicle.vehicle.PlaneFlightState;
 import com.blockvehicle.vehicle.PlanePhysics;
+import com.blockvehicle.vehicle.HelicopterPhysics;
 import com.blockvehicle.sound.ModSounds;
 import com.blockvehicle.vehicle.SeatData;
 import com.blockvehicle.vehicle.VehicleActivator;
@@ -220,6 +221,14 @@ extends Entity {
         return this.structure != null && this.structure.isPlane();
     }
 
+    public boolean isHelicopter() {
+        return this.structure != null && this.structure.isHelicopter();
+    }
+
+    public boolean isAircraft() {
+        return this.structure != null && this.structure.isAircraft();
+    }
+
     public Quaternionf getAircraftOrientation() {
         return new Quaternionf(this.aircraftOrientation);
     }
@@ -240,7 +249,7 @@ extends Entity {
 
     public Vec3d getPlaneVelocity() { return this.planeVelocity; }
     public Vec3d getCollisionVelocity() {
-        if (this.isPlane()) return this.planeVelocity;
+        if (this.isAircraft()) return this.planeVelocity;
         float yawRadians = (float)Math.toRadians(this.getYaw());
         return new Vec3d(-Math.sin(yawRadians) * this.speed, this.verticalVelocity,
             Math.cos(yawRadians) * this.speed);
@@ -248,7 +257,7 @@ extends Entity {
 
     public void dampenCollisionVelocity(float factor) {
         factor = MathHelper.clamp(factor, 0.0f, 1.0f);
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             this.planeVelocity = this.planeVelocity.multiply(factor);
             this.speed = (float)this.planeVelocity.length();
             this.setVelocity(this.planeVelocity);
@@ -268,7 +277,7 @@ extends Entity {
     public PlaneFlightState getPlaneFlightState() { return this.planeFlightState; }
 
     public Vec3d transformStructurePoint(Vec3d localPoint) {
-        if (!this.isPlane()) {
+        if (!this.isAircraft()) {
             float relativeYaw = this.getYaw() - this.structure.getInitialYaw();
             float yawRad = (float)Math.toRadians(relativeYaw);
             float pitchRad = (float)Math.toRadians(this.vehiclePitch);
@@ -290,7 +299,7 @@ extends Entity {
     }
 
     public void addAngularVelocity(float deltaOmega) {
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             this.planeYawRate = MathHelper.clamp(this.planeYawRate + deltaOmega * 0.25f, -3.0f, 3.0f);
             return;
         }
@@ -349,10 +358,10 @@ extends Entity {
     public void setStructure(VehicleStructure structure) {
         this.structure = structure;
         if (structure != null) {
-            if (structure.isPlane() && this.aircraftOrientation.lengthSquared() < 0.5f) {
+            if (structure.isAircraft() && this.aircraftOrientation.lengthSquared() < 0.5f) {
                 this.aircraftOrientation = AircraftOrientation.fromYaw(this.getYaw());
                 this.prevAircraftOrientation.set(this.aircraftOrientation);
-            } else if (structure.isPlane() && this.age == 0 && this.planeFlightState == PlaneFlightState.PARKED) {
+            } else if (structure.isAircraft() && this.age == 0 && this.planeFlightState == PlaneFlightState.PARKED) {
                 this.aircraftOrientation = AircraftOrientation.fromYaw(structure.getInitialYaw());
                 this.prevAircraftOrientation.set(this.aircraftOrientation);
             }
@@ -381,7 +390,7 @@ extends Entity {
         double x = this.getX();
         double y = this.getY();
         double z = this.getZ();
-        if (this.structure.isPlane()) {
+        if (this.structure.isAircraft()) {
             double minX = Double.POSITIVE_INFINITY;
             double minY = Double.POSITIVE_INFINITY;
             double minZ = Double.POSITIVE_INFINITY;
@@ -517,7 +526,7 @@ extends Entity {
     }
 
     public boolean acceptPlaneInput(UUID driverId, PlaneInputPayload payload) {
-        if (!this.isPlane() || driverId == null || payload.sequence() < 0
+        if (!this.isAircraft() || driverId == null || payload.sequence() < 0
             || (payload.flags() & ~0x3FF) != 0
             || !Float.isFinite(payload.lookYaw()) || !Float.isFinite(payload.lookPitch())
             || Math.abs(payload.lookPitch()) > 90.01f || Math.abs(payload.lookYaw()) > 1.0E7f) {
@@ -543,7 +552,7 @@ extends Entity {
     }
 
     public void applyCollisionImpulse(double impulseX, double impulseY, double impulseZ, float angularImpulse) {
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             this.planeVelocity = this.planeVelocity.add(
                 MathHelper.clamp(impulseX, -1.8, 1.8),
                 MathHelper.clamp(impulseY, -1.8, 1.8),
@@ -590,20 +599,22 @@ extends Entity {
         if (this.getWorld().isClient()) {
             if (this.isDrivenByLocalPlayer()) {
                 if (this.isPlane()) this.tickPlanePhysics();
+                else if (this.isHelicopter()) this.tickHelicopterPhysics();
                 else this.tickPhysics();
             } else {
                 this.tickClientInterp();
             }
             return;
         }
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             // The server owns the canonical plane simulation. The pilot runs the
             // same step locally for immediate controls, then reconciles snapshots.
             if (this.hasDriver() && this.age - this.lastPlaneInputTick > 10) {
                 this.inputState = new VehicleInputState(false, false, false, false, false,
                     false, false, false, false, this.getYaw(), -this.vehiclePitch);
             }
-            this.tickPlanePhysics();
+            if (this.isPlane()) this.tickPlanePhysics();
+            else this.tickHelicopterPhysics();
         } else if (!this.hasDriver()) {
             this.tickPhysics();
         } else {
@@ -649,7 +660,7 @@ extends Entity {
             this.vehicleRoll += (this.clientTargetRoll - this.vehicleRoll) / (float)this.clientVisualInterpSteps;
             --this.clientVisualInterpSteps;
         }
-        if (this.isPlane() && this.clientPlaneInterpSteps > 0) {
+        if (this.isAircraft() && this.clientPlaneInterpSteps > 0) {
             float amount = 1.0f / (float)this.clientPlaneInterpSteps;
             this.aircraftOrientation.slerp(this.clientTargetAircraftOrientation, amount).normalize();
             --this.clientPlaneInterpSteps;
@@ -657,7 +668,7 @@ extends Entity {
             this.vehiclePitch = AircraftOrientation.pitchDegrees(this.aircraftOrientation);
             this.vehicleRoll = AircraftOrientation.rollDegrees(this.aircraftOrientation);
         }
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             this.propellerAngle = MathHelper.wrapDegrees(this.propellerAngle + this.engineRpm * 42.0f);
             this.refreshBoundingBox();
             return;
@@ -673,11 +684,24 @@ extends Entity {
         if (!this.isPlane()) {
             return;
         }
+        PlaneDefinition definition = this.structure.getPlaneDefinition();
         boolean wasGrounded = this.physicsGrounded;
         double descentSpeed = Math.max(0.0, -this.planeVelocity.y);
+        Vec3d currentForward = AircraftOrientation.forward(this.aircraftOrientation);
+        double currentForwardSpeed = Math.max(0.0, this.planeVelocity.dotProduct(currentForward));
+        float currentPitch = AircraftOrientation.pitchDegrees(this.aircraftOrientation);
+        float requestedLookPitch = MathHelper.clamp(-this.inputState.lookPitch, -6.0f, 24.0f);
+        boolean requestsRotation = this.inputState.pitchUp
+            || !this.inputState.pitchDown && requestedLookPitch > 2.5f
+                && requestedLookPitch > currentPitch + 0.75f;
+        boolean hasTakeoffPower = this.inputState.forward || this.throttle > 0.18f;
+        boolean takeoffIntent = this.hasDriver() && hasTakeoffPower && requestsRotation
+            && currentForwardSpeed >= definition.takeoffSpeed() * 0.68f;
+        boolean risingDeparture = this.planeVelocity.y > 0.006
+            && currentForwardSpeed >= definition.takeoffSpeed() * 0.58f && currentPitch > 0.8f;
         PlaneGroundContact groundContact = this.samplePlaneGroundContact(PlanePhysics.GEAR_REACH);
-        boolean contactNow = groundContact.supported() && groundContact.gap() <= 0.18;
-        if (wasGrounded && this.planeVelocity.y <= 0.015 && this.planeFlightState != PlaneFlightState.TAKEOFF
+        boolean contactNow = groundContact.supported() && groundContact.gap() <= 0.18 && !risingDeparture;
+        if (wasGrounded && !takeoffIntent && this.planeVelocity.y <= 0.015 && this.planeFlightState != PlaneFlightState.TAKEOFF
             && groundContact.supported() && groundContact.gap() > 0.07) {
             double settle = Math.min(0.12, groundContact.gap() - 0.05);
             Vec3d settledPosition = this.getPos().add(0.0, -settle, 0.0);
@@ -723,10 +747,25 @@ extends Entity {
         this.setYaw(AircraftOrientation.yawDegrees(this.aircraftOrientation));
         this.vehiclePitch = AircraftOrientation.pitchDegrees(this.aircraftOrientation);
         this.vehicleRoll = AircraftOrientation.rollDegrees(this.aircraftOrientation);
+        double rotatedForwardSpeed = Math.max(0.0,
+            this.planeVelocity.dotProduct(AircraftOrientation.forward(this.aircraftOrientation)));
+        boolean takeoffReady = grounded && takeoffIntent && this.vehiclePitch > 0.55f
+            && rotatedForwardSpeed >= definition.takeoffSpeed() * 0.66f;
+        if (takeoffReady) {
+            float speedExcess = MathHelper.clamp(
+                (float)(rotatedForwardSpeed / Math.max(0.12f, definition.takeoffSpeed()) - 0.66f) / 0.50f,
+                0.0f, 1.0f);
+            double liftoffVelocity = 0.026 + speedExcess * 0.018;
+            this.planeVelocity = new Vec3d(this.planeVelocity.x,
+                Math.max(this.planeVelocity.y, liftoffVelocity), this.planeVelocity.z);
+            this.planeGroundContactTicks = 0;
+            this.planeAirborneTicks = Math.max(1, this.planeAirborneTicks);
+            this.speed = (float)this.planeVelocity.length();
+        }
         this.movePlaneSwept(this.planeVelocity);
         PlaneGroundContact contactAfter = this.samplePlaneGroundContact(PlanePhysics.GEAR_REACH);
-        boolean deliberatelyDeparting = this.planeVelocity.y > 0.025
-            && this.speed > this.structure.getPlaneDefinition().takeoffSpeed() * 0.72f;
+        boolean deliberatelyDeparting = takeoffReady || this.planeVelocity.y > 0.012
+            && this.speed > definition.takeoffSpeed() * 0.62f && this.vehiclePitch > 0.8f;
         boolean supportedAfter = contactAfter.supported() && contactAfter.gap() <= 0.20
             || !deliberatelyDeparting && wasGrounded && contactAfter.supported() && contactAfter.gap() <= PlanePhysics.GEAR_REACH;
         this.physicsGrounded = supportedAfter;
@@ -784,8 +823,82 @@ extends Entity {
         }
     }
 
+    private void tickHelicopterPhysics() {
+        if (!this.isHelicopter()) return;
+        boolean wasGrounded = this.physicsGrounded;
+        double descentSpeed = Math.max(0.0, -this.planeVelocity.y);
+        PlaneGroundContact contact = this.samplePlaneGroundContact(HelicopterPhysics.GEAR_REACH);
+        boolean contactNow = contact.supported() && contact.gap() <= 0.20;
+        if (contactNow) {
+            this.planeGroundContactTicks = Math.min(10, this.planeGroundContactTicks + 1);
+            this.planeAirborneTicks = 0;
+        } else {
+            this.planeAirborneTicks = Math.min(10, this.planeAirborneTicks + 1);
+            this.planeGroundContactTicks = Math.max(0, this.planeGroundContactTicks - 1);
+        }
+        boolean wantsLift = this.inputState.brake && this.engineRpm > 0.62f;
+        boolean grounded = (this.planeGroundContactTicks >= 2 || wasGrounded && this.planeAirborneTicks < 2)
+            && !(wantsLift && this.throttle > 0.64f);
+        HelicopterPhysics.State state = new HelicopterPhysics.State(new Quaternionf(this.aircraftOrientation),
+            this.planeVelocity, this.throttle, this.engineRpm, this.planePitchRate, this.planeRollRate,
+            this.planeYawRate, this.stallAmount, this.planeFlightState, this.getYaw(), this.age);
+        HelicopterPhysics.Result result = HelicopterPhysics.step(state, this.inputState,
+            this.structure.getPlaneDefinition(), grounded, this.hasTerrainBelow(4.0), this.hasDriver(), this.getWeightFactor());
+        Quaternionf safeOrientation = this.resolvePlaneRotation(this.aircraftOrientation, result.orientation());
+        boolean rotationBlocked = Math.abs(safeOrientation.dot(result.orientation())) < 0.99999f;
+        this.aircraftOrientation.set(safeOrientation);
+        this.planeVelocity = result.velocity();
+        this.throttle = result.collective();
+        this.engineRpm = result.rotorRpm();
+        this.planePitchRate = result.pitchRate();
+        this.planeRollRate = result.rollRate();
+        this.planeYawRate = result.yawRate();
+        this.stallAmount = result.vortexAmount();
+        this.angleOfAttack = result.diskTilt();
+        this.speed = result.speed();
+        if (rotationBlocked) {
+            this.planePitchRate *= -0.12f;
+            this.planeRollRate *= -0.12f;
+            this.planeYawRate *= 0.35f;
+        }
+        if (this.planeImpactStateTicks <= 0
+            || this.planeFlightState != PlaneFlightState.CRASHED && this.planeFlightState != PlaneFlightState.HARD_LANDING) {
+            this.planeFlightState = result.flightState();
+        }
+        this.propellerAngle = MathHelper.wrapDegrees(this.propellerAngle + this.engineRpm * 54.0f);
+        this.setYaw(AircraftOrientation.yawDegrees(this.aircraftOrientation));
+        this.vehiclePitch = AircraftOrientation.pitchDegrees(this.aircraftOrientation);
+        this.vehicleRoll = AircraftOrientation.rollDegrees(this.aircraftOrientation);
+        this.movePlaneSwept(this.planeVelocity);
+        PlaneGroundContact after = this.samplePlaneGroundContact(HelicopterPhysics.GEAR_REACH);
+        boolean supportedAfter = after.supported() && after.gap() <= 0.22 && this.planeVelocity.y <= 0.02;
+        this.physicsGrounded = supportedAfter;
+        if (supportedAfter && this.planeVelocity.y < 0.0) {
+            this.planeVelocity = new Vec3d(this.planeVelocity.x, 0.0, this.planeVelocity.z);
+            this.setOnGround(true);
+        } else {
+            this.setOnGround(false);
+        }
+        if (supportedAfter && !wasGrounded && descentSpeed > 0.15) this.applyPlaneLandingImpact(descentSpeed);
+        if (this.isTouchingWater()) {
+            this.planeVelocity = this.planeVelocity.multiply(0.74).add(0.0, 0.028, 0.0);
+            this.throttle *= 0.91f;
+            this.engineRpm *= 0.95f;
+        } else if (this.isInLava()) {
+            this.planeVelocity = this.planeVelocity.multiply(0.56).add(0.0, 0.012, 0.0);
+            this.throttle *= 0.82f;
+            this.engineRpm *= 0.88f;
+        }
+        this.motionX = this.planeVelocity.x;
+        this.motionZ = this.planeVelocity.z;
+        this.verticalVelocity = this.planeVelocity.y;
+        this.setVelocity(this.planeVelocity);
+        if (!this.getWorld().isClient()) VehicleCollisionHandler.handleCollisions(this);
+        this.refreshBoundingBox();
+    }
+
     private PlaneGroundContact samplePlaneGroundContact(double reach) {
-        if (!this.isPlane()) return PlaneGroundContact.NONE;
+        if (!this.isAircraft()) return PlaneGroundContact.NONE;
         List<VehicleStructure.WheelData> wheels = this.structure.getWheels();
         int support = 0;
         int samples = 0;
@@ -1023,7 +1136,7 @@ extends Entity {
     }
 
     private boolean hasTerrainBelow(double reach) {
-        if (!this.isPlane()) return false;
+        if (!this.isAircraft()) return false;
         PlaneDefinition definition = this.structure.getPlaneDefinition();
         Vec3d[] points = new Vec3d[]{definition.centerOfMass(), definition.nose().blockCenter(),
             definition.leftWingTip().blockCenter(), definition.rightWingTip().blockCenter()};
@@ -1695,7 +1808,7 @@ extends Entity {
         }
         List<SeatData> seats = struct.getSeats();
         SeatData seat = this.getSeatFor(passenger, seats);
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             PlaneDefinition definition = struct.getPlaneDefinition();
             Vec3d localSeat = new Vec3d(seat.rx, seat.ry, seat.rz);
             Vec3d transformed = AircraftOrientation.transformAroundPivot(this.getRelativeAircraftOrientation(), localSeat, definition.centerOfMass());
@@ -1759,9 +1872,14 @@ extends Entity {
     }
 
     private float getPassengerSeatYaw(Entity passenger) {
-        if (this.structure == null) return this.getYaw();
+        return this.getYaw() + this.getPassengerSeatRelativeYaw(passenger);
+    }
+
+    /** Local yaw of this passenger's seat in the aircraft's coordinate frame. */
+    public float getPassengerSeatRelativeYaw(Entity passenger) {
+        if (this.structure == null || this.structure.getSeats().isEmpty()) return 0.0f;
         SeatData seat = this.getSeatFor(passenger, this.structure.getSeats());
-        return this.getYaw() + MathHelper.wrapDegrees(seat.yawOffset - this.structure.getInitialYaw());
+        return MathHelper.wrapDegrees(seat.yawOffset - this.structure.getInitialYaw());
     }
 
     protected void removePassenger(Entity passenger) {
@@ -1848,7 +1966,7 @@ extends Entity {
             return;
         }
         ServerWorld sw = (ServerWorld)world;
-        int interval = this.isPlane() ? (this.hasDriver() ? 2 : 4) : (Math.abs(this.speed) > 0.003f || this.hasDriver() ? 4 : 10);
+        int interval = this.isAircraft() ? (this.hasDriver() ? 2 : 4) : (Math.abs(this.speed) > 0.003f || this.hasDriver() ? 4 : 10);
         if (this.age % interval != 0) {
             return;
         }
@@ -1858,7 +1976,7 @@ extends Entity {
             ServerPlayerEntity driverPlayer = (ServerPlayerEntity)passenger;
             recipients.add(driverPlayer);
         }
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             PlaneSyncPayload pkt = new PlaneSyncPayload(this.getId(), this.lastPlaneInputSequence,
                 this.getX(), this.getY(), this.getZ(),
                 (float)this.planeVelocity.x, (float)this.planeVelocity.y, (float)this.planeVelocity.z,
@@ -1875,7 +1993,7 @@ extends Entity {
     }
 
     public void applyPlaneServerTelemetry(PlaneSyncPayload payload) {
-        if (!this.isPlane()) return;
+        if (!this.isAircraft()) return;
         Quaternionf target = new Quaternionf(payload.qx(), payload.qy(), payload.qz(), payload.qw());
         target = AircraftOrientation.sanitize(target, this.getYaw());
         Vec3d targetPosition = new Vec3d(payload.x(), payload.y(), payload.z());
@@ -1893,19 +2011,35 @@ extends Entity {
                 target.normalize();
             }
             double positionErrorSq = this.getPos().squaredDistanceTo(targetPosition);
-            if (positionErrorSq > 100.0) {
+            double positionError = Math.sqrt(positionErrorSq);
+            if (positionErrorSq > 36.0) {
                 this.setPosition(targetPosition);
                 this.prevX = targetPosition.x;
                 this.prevY = targetPosition.y;
                 this.prevZ = targetPosition.z;
-            } else if (positionErrorSq > 0.01) {
-                this.setPosition(this.getPos().lerp(targetPosition, positionErrorSq > 4.0 ? 0.16 : 0.055));
+            } else if (positionError > 0.35) {
+                Vec3d correction = targetPosition.subtract(this.getPos());
+                Vec3d travelDirection = this.planeVelocity.lengthSquared() > 1.0E-6
+                    ? this.planeVelocity.normalize() : AircraftOrientation.forward(this.aircraftOrientation);
+                boolean pullsBackward = correction.dotProduct(travelDirection) < 0.0;
+                // Server authority still wins, but routine prediction noise is
+                // paid back in tiny bounded nudges. A delayed snapshot after a
+                // chunk-render hitch can no longer visibly tug the pilot backward.
+                double maximumNudge = positionError > 2.5 ? 0.12 : pullsBackward ? 0.014 : 0.028;
+                double nudge = Math.min(maximumNudge, Math.max(0.0, positionError - 0.20));
+                if (nudge > 0.0) {
+                    this.setPosition(this.getPos().add(correction.multiply(nudge / positionError)));
+                }
             }
             float orientationDot = Math.abs(this.aircraftOrientation.dot(target));
-            if (orientationDot < 0.99995f) {
-                this.aircraftOrientation.slerp(target, orientationDot < 0.92f ? 0.25f : 0.08f).normalize();
+            if (orientationDot < 0.9997f) {
+                this.aircraftOrientation.slerp(target, orientationDot < 0.92f ? 0.18f : 0.045f).normalize();
             }
-            this.planeVelocity = this.planeVelocity.lerp(targetVelocity, positionErrorSq > 0.64 ? 0.18 : 0.07);
+            double velocityErrorSq = this.planeVelocity.squaredDistanceTo(targetVelocity);
+            if (velocityErrorSq > 0.0025) {
+                float velocityBlend = positionError > 2.5 ? 0.10f : 0.035f;
+                this.planeVelocity = this.planeVelocity.lerp(targetVelocity, velocityBlend);
+            }
             this.throttle += (payload.throttle() - this.throttle) * 0.12f;
             this.engineRpm += (payload.engineRpm() - this.engineRpm) * 0.12f;
             this.planePitchRate += (payload.pitchRate() - this.planePitchRate) * 0.10f;
@@ -1969,9 +2103,9 @@ extends Entity {
     }
 
     public void dismantleBackToBlocks(ServerWorld world, PlayerEntity player, boolean force) {
-        if (!force && this.isPlane() && (!this.physicsGrounded || this.speed > 0.08f
+        if (!force && this.isAircraft() && (!this.physicsGrounded || this.speed > 0.08f
             || Math.abs(this.vehiclePitch) > 3.0f || Math.abs(this.vehicleRoll) > 3.0f)) {
-            if (player != null) player.sendMessage(Text.literal("\u00a7cLand, stop, and level the plane before dismantling it."), true);
+            if (player != null) player.sendMessage(Text.literal("\u00a7cLand, stop, and level the aircraft before dismantling it."), true);
             return;
         }
         float snappedYaw = this.getYaw();
@@ -2031,7 +2165,7 @@ extends Entity {
         this.vehiclePitch = nbt.getFloat("vehiclePitch");
         this.vehicleRoll = nbt.getFloat("vehicleRoll");
         this.setYaw(savedYaw);
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             if (nbt.contains("aircraftQx")) {
                 this.aircraftOrientation = AircraftOrientation.sanitize(new Quaternionf(nbt.getFloat("aircraftQx"),
                     nbt.getFloat("aircraftQy"), nbt.getFloat("aircraftQz"), nbt.getFloat("aircraftQw")), savedYaw);
@@ -2060,7 +2194,7 @@ extends Entity {
         nbt.putFloat("speed", this.speed);
         nbt.putFloat("vehiclePitch", this.vehiclePitch);
         nbt.putFloat("vehicleRoll", this.vehicleRoll);
-        if (this.isPlane()) {
+        if (this.isAircraft()) {
             nbt.putFloat("aircraftQx", this.aircraftOrientation.x);
             nbt.putFloat("aircraftQy", this.aircraftOrientation.y);
             nbt.putFloat("aircraftQz", this.aircraftOrientation.z);

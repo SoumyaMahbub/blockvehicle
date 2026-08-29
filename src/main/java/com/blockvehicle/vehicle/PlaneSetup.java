@@ -30,4 +30,16 @@ public record PlaneSetup(
     public boolean isCompletePlane() {
         return mode == VehicleMode.PLANE && leftWingTip != null && rightWingTip != null;
     }
+
+    public boolean isCompleteHelicopter() {
+        if (mode != VehicleMode.HELICOPTER || propellerHubs.isEmpty() || propellerBlades.isEmpty()) return false;
+        return propellerHubs.stream().anyMatch(hub -> {
+            Direction axis = propellerAxes.getOrDefault(hub, Direction.UP);
+            return axis.getAxis() == Direction.Axis.Y;
+        });
+    }
+
+    public boolean isAircraft() {
+        return mode == VehicleMode.PLANE || mode == VehicleMode.HELICOPTER;
+    }
 }

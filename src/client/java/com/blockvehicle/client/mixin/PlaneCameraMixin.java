@@ -27,7 +27,7 @@ public abstract class PlaneCameraMixin {
         target = "Lnet/minecraft/client/render/Camera;clipToSpace(F)F"), index = 0)
     private float blockvehicle$frameLargePlane(float vanillaDistance) {
         if (!(this.focusedEntity != null && this.focusedEntity.getVehicle() instanceof VehicleEntity plane)
-            || !plane.isPlane() || plane.getStructure() == null) return vanillaDistance;
+            || !plane.isAircraft() || plane.getStructure() == null) return vanillaDistance;
         double width = plane.getStructure().getWidth();
         double height = plane.getStructure().getHeight();
         double length = plane.getStructure().getLength();
@@ -40,7 +40,7 @@ public abstract class PlaneCameraMixin {
     @Inject(method = "update", at = @At("TAIL"))
     private void blockvehicle$applyPlaneCamera(BlockView area, Entity focusedEntity, boolean thirdPerson,
                                                 boolean inverseView, float tickDelta, CallbackInfo ci) {
-        if (!(focusedEntity.getVehicle() instanceof VehicleEntity plane) || !plane.isPlane()) return;
+        if (!(focusedEntity.getVehicle() instanceof VehicleEntity plane) || !plane.isAircraft()) return;
         BlockVehicleConfig.Values config = BlockVehicleConfig.get();
         float planePitch = MathHelper.lerp(tickDelta, plane.getPrevVehiclePitch(), plane.getVehiclePitch());
         float planeRoll = MathHelper.lerp(tickDelta, plane.getPrevVehicleRoll(), plane.getVehicleRoll());

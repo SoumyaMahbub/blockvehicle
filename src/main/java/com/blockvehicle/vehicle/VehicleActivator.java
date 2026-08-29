@@ -249,6 +249,8 @@ public class VehicleActivator {
         float vehicleYaw = driverYaw;
         if (vehicleMode == VehicleMode.PLANE && planeSetup.isCompletePlane()) {
             vehicleYaw = resolvePlaneYaw(planeSetup, cx, cz, driverSeat, driverYaw);
+        } else if (vehicleMode == VehicleMode.HELICOPTER && planeSetup.isCompleteHelicopter()) {
+            vehicleYaw = resolvePlaneYaw(planeSetup, cx, cz, driverSeat, driverYaw);
         } else {
             vehicleMode = VehicleMode.GROUND;
         }
@@ -269,7 +271,8 @@ public class VehicleActivator {
         }
         PlaneDefinition planeDefinition = vehicleMode == VehicleMode.PLANE
             ? buildPlaneDefinition(planeSetup, storedBlocks, cx, y0, cz, vehicleYaw)
-            : null;
+            : vehicleMode == VehicleMode.HELICOPTER
+                ? buildHelicopterDefinition(planeSetup, storedBlocks, cx, y0, cz, vehicleYaw) : null;
         return new VehicleStructure(storedBlocks, seats, wheelDataList, storedFrames, width, height, length,
             origin, vehicleYaw, vehicleMode, planeDefinition);
     }
@@ -388,8 +391,97 @@ public class VehicleActivator {
         return new PlaneDefinition.Point(pos.getX() + 0.5 - cx, pos.getY() - baseY, pos.getZ() + 0.5 - cz);
     }
 
+    private static PlaneDefinition buildHelicopterDefinition(PlaneSetup setup, List<VehicleStructure.StoredBlock> blocks,
+                                                              double cx, int baseY, double cz, float yaw) {
+        float yawRadians = (float)Math.toRadians(yaw);
+        double forwardX = -Math.sin(yawRadians);
+        double forwardZ = Math.cos(yawRadians);
+        PlaneDefinition.Point nose = setup.nose() != null ? localPoint(setup.nose(), cx, baseY, cz) : null;
+        if (nose == null) {
+            VehicleStructure.StoredBlock front = blocks.stream().max(Comparator.comparingDouble(
+                block -> block.rx() * forwardX + block.rz() * forwardZ)).orElse(null);
+            nose = front != null ? new PlaneDefinition.Point(front.rx(), front.ry(), front.rz())
+                : new PlaneDefinition.Point(forwardX * 2.0, 0.0, forwardZ * 2.0);
+        }
+        double totalMass = 0.0, massX = 0.0, massY = 0.0, massZ = 0.0;
+        for (VehicleStructure.StoredBlock block : blocks) {
+            double mass = VehicleStructure.getBlockMass(block.state());
+            totalMass += mass;
+            massX += block.rx() * mass;
+            massY += (block.ry() + 0.5) * mass;
+            massZ += block.rz() * mass;
+        }
+        Vec3d centerOfMass = totalMass > 1.0E-6
+            ? new Vec3d(massX / totalMass, massY / totalMass, massZ / totalMass) : Vec3d.ZERO;
+        Comparator<BlockPos> order = Comparator.comparingInt(BlockPos::getX)
+            .thenComparingInt(BlockPos::getY).thenComparingInt(BlockPos::getZ);
+        ArrayList<PlaneDefinition.Point> hubs = new ArrayList<>();
+        Map<PlaneDefinition.Point, BlockPos> sources = new HashMap<>();
+        setup.propellerHubs().stream().sorted(order).forEach(pos -> {
+            PlaneDefinition.Point hub = localPoint(pos, cx, baseY, cz);
+            hubs.add(hub);
+            sources.put(hub, pos);
+        });
+        Map<PlaneDefinition.Point, ArrayList<PlaneDefinition.Point>> blades = new HashMap<>();
+        for (PlaneDefinition.Point hub : hubs) blades.put(hub, new ArrayList<>());
+        for (BlockPos bladePos : setup.propellerBlades().stream().sorted(order).toList()) {
+            PlaneDefinition.Point blade = localPoint(bladePos, cx, baseY, cz);
+            PlaneDefinition.Point closest = hubs.stream().min(Comparator.comparingDouble(blade::squaredDistanceTo)).orElse(null);
+            if (closest != null) blades.get(closest).add(blade);
+        }
+        ArrayList<PlaneDefinition.PropellerAssembly> rotors = new ArrayList<>();
+        for (PlaneDefinition.Point hub : hubs) {
+            BlockPos source = sources.get(hub);
+            Direction direction = setup.propellerAxes().getOrDefault(source, Direction.UP);
+            Vec3d axis = new Vec3d(direction.getOffsetX(), direction.getOffsetY(), direction.getOffsetZ());
+            rotors.add(new PlaneDefinition.PropellerAssembly(hub, axis, blades.get(hub),
+                !setup.counterClockwiseHubs().contains(source)));
+        }
+        List<PlaneDefinition.PropellerAssembly> mainRotors = rotors.stream()
+            .filter(rotor -> Math.abs(rotor.axis().y) >= 0.7).toList();
+        Vec3d centerOfLift = mainRotors.stream().map(rotor -> rotor.hub().blockCenter())
+            .reduce(Vec3d.ZERO, Vec3d::add).multiply(1.0 / Math.max(1, mainRotors.size()));
+        float radius = 1.0f;
+        for (PlaneDefinition.PropellerAssembly rotor : mainRotors) for (PlaneDefinition.Point blade : rotor.blades()) {
+            radius = Math.max(radius, (float)Math.sqrt(blade.squaredDistanceTo(rotor.hub())));
+        }
+        int mainBladeCount = mainRotors.stream().mapToInt(rotor -> rotor.blades().size()).sum();
+        int tailRotorCount = rotors.size() - mainRotors.size();
+        float rotorDiameter = radius * 2.0f;
+        float diskArea = (float)Math.PI * radius * radius;
+        float liftScale = MathHelper.clamp(0.82f + (float)Math.sqrt(Math.max(1, mainBladeCount)) * 0.12f
+            + diskArea / (float)Math.max(8.0, totalMass) * 0.08f, 0.72f, 1.8f);
+        float enginePower = MathHelper.clamp(0.82f + (float)Math.sqrt(Math.max(1, mainBladeCount)) * 0.10f
+            + Math.max(0, mainRotors.size() - 1) * 0.14f, 0.9f, 2.2f);
+        BlockVehicleConfig.Values config = BlockVehicleConfig.get();
+        liftScale *= (float)config.planeLiftMultiplier;
+        enginePower *= (float)config.planeThrustMultiplier;
+        float balanceOffset = (float)Math.sqrt((centerOfMass.x - centerOfLift.x) * (centerOfMass.x - centerOfLift.x)
+            + (centerOfMass.z - centerOfLift.z) * (centerOfMass.z - centerOfLift.z));
+        float asymmetry = MathHelper.clamp(balanceOffset / Math.max(1.0f, radius), 0.0f, 1.0f);
+        ArrayList<PlaneDefinition.Point> priority = new ArrayList<>();
+        priority.add(nose);
+        for (PlaneDefinition.PropellerAssembly rotor : rotors) priority.add(rotor.hub());
+        blocks.stream().min(Comparator.comparingDouble(VehicleStructure.StoredBlock::ry)).ifPresent(block ->
+            priority.add(new PlaneDefinition.Point(block.rx(), block.ry(), block.rz())));
+        // PlaneDefinition is the shared immutable aircraft-geometry container.
+        // For helicopters, wingSpan/wingArea store rotor diameter/disk area and
+        // takeoffSpeed stores yaw authority (tail rotors make it stronger).
+        return new PlaneDefinition(nose, null, null, centerOfMass, centerOfLift, rotors, priority,
+            rotorDiameter, diskArea, liftScale, tailRotorCount > 0 ? 0.72f : 0.46f,
+            enginePower, (float)config.planeDragMultiplier, (float)config.planeControlAssist,
+            balanceOffset, asymmetry);
+    }
+
     public static String validatePlaneSetup(PlaneSetup setup, BlockPos min, BlockPos max,
                                             BlockPos driverSeat, Direction fallbackFacing) {
+        if (setup != null && setup.mode() == VehicleMode.HELICOPTER) {
+            if (!setup.isCompleteHelicopter()) {
+                return "Helicopter Mode needs a main rotor hub (click its TOP or BOTTOM face) and at least one blade block.";
+            }
+            if (driverSeat == null) return "Helicopter Mode needs a marked Driver Seat.";
+            return null;
+        }
         if (setup == null || setup.mode() != VehicleMode.PLANE) {
             return null;
         }
@@ -418,13 +510,32 @@ public class VehicleActivator {
             forwardX = -Math.sin(Math.toRadians(yaw));
             forwardZ = Math.cos(Math.toRadians(yaw));
         }
-        double rightX = -forwardZ;
-        double rightZ = forwardX;
-        double leftSide = (setup.leftWingTip().getX() + 0.5 - centerX) * rightX
-            + (setup.leftWingTip().getZ() + 0.5 - centerZ) * rightZ;
-        double rightSide = (setup.rightWingTip().getX() + 0.5 - centerX) * rightX
-            + (setup.rightWingTip().getZ() + 0.5 - centerZ) * rightZ;
-        if (Math.abs(leftSide) < 0.35 || Math.abs(rightSide) < 0.35 || leftSide * rightSide >= 0.0) {
+        // The selection box is often intentionally asymmetric (long nose/tail,
+        // decorations, or one extra block), so its geometric center is not a
+        // reliable fuselage center. Project both the driver reference and the
+        // selection center onto the explicit tip-to-tip axis; either may define
+        // the fuselage on an intentionally asymmetric or side-by-side cockpit.
+        double wingX = setup.rightWingTip().getX() - setup.leftWingTip().getX();
+        double wingZ = setup.rightWingTip().getZ() - setup.leftWingTip().getZ();
+        double horizontalWingLength = Math.sqrt(wingX * wingX + wingZ * wingZ);
+        if (horizontalWingLength < 1.5) {
+            return "Wing tips need at least 1.5 blocks of horizontal separation.";
+        }
+        double wingAxisX = wingX / horizontalWingLength;
+        double wingAxisZ = wingZ / horizontalWingLength;
+        double leftSide = (setup.leftWingTip().getX() + 0.5 - referenceX) * wingAxisX
+            + (setup.leftWingTip().getZ() + 0.5 - referenceZ) * wingAxisZ;
+        double rightSide = (setup.rightWingTip().getX() + 0.5 - referenceX) * wingAxisX
+            + (setup.rightWingTip().getZ() + 0.5 - referenceZ) * wingAxisZ;
+        double leftCenterSide = (setup.leftWingTip().getX() + 0.5 - centerX) * wingAxisX
+            + (setup.leftWingTip().getZ() + 0.5 - centerZ) * wingAxisZ;
+        double rightCenterSide = (setup.rightWingTip().getX() + 0.5 - centerX) * wingAxisX
+            + (setup.rightWingTip().getZ() + 0.5 - centerZ) * wingAxisZ;
+        boolean straddlesReference = Math.abs(leftSide) >= 0.20 && Math.abs(rightSide) >= 0.20
+            && leftSide * rightSide < 0.0;
+        boolean straddlesSelection = Math.abs(leftCenterSide) >= 0.20 && Math.abs(rightCenterSide) >= 0.20
+            && leftCenterSide * rightCenterSide < 0.0;
+        if (!straddlesReference && !straddlesSelection) {
             return "Left and right wing tips must be on opposite sides of the fuselage.";
         }
         double dx = setup.leftWingTip().getX() - setup.rightWingTip().getX();
@@ -446,26 +557,28 @@ public class VehicleActivator {
             return "Each vehicle dimension is limited to " + config.maxVehicleAxis
                 + " blocks to prevent huge collision/tracking regions.";
         }
-        if (setup == null || setup.mode() != VehicleMode.PLANE) return null;
+        if (setup == null || !setup.isAircraft()) return null;
         if (!arePlaneMarkersInside(min, max, setup)) {
-            return "Every plane marker and propeller block must be inside the selected region.";
+            return "Every aircraft marker and rotor/propeller block must be inside the selected region.";
         }
         if (!hasDriverSeat(world, min, max, customDriverSeat)) {
-            return "Plane Mode needs a marked Driver Seat, Driver Seat block, or stair seat inside the selection.";
+            return "Aircraft Mode needs a marked Driver Seat, Driver Seat block, or stair seat inside the selection.";
         }
         if (setup.propellerHubs().size() > config.maxPropellers) {
-            return "Planes are limited to " + config.maxPropellers + " propeller assemblies.";
+            return "Aircraft are limited to " + config.maxPropellers + " rotor/propeller assemblies.";
         }
         if (setup.propellerBlades().size() > config.maxPropellerBladeBlocks) {
-            return "Plane propellers are limited to " + config.maxPropellerBladeBlocks + " blade blocks.";
+            return "Aircraft rotors are limited to " + config.maxPropellerBladeBlocks + " blade blocks.";
         }
         if (setup.propellerHubs().isEmpty() != setup.propellerBlades().isEmpty()) {
             return setup.propellerHubs().isEmpty()
                 ? "Propeller blade blocks need at least one hub."
                 : "Each propeller hub needs at least one blade block (or remove all hubs for a glider).";
         }
-        for (BlockPos marker : List.of(setup.leftWingTip(), setup.rightWingTip())) {
-            if (world.getBlockState(marker).isAir()) return "Wing-tip markers must point to real selected blocks.";
+        if (setup.mode() == VehicleMode.PLANE) {
+            for (BlockPos marker : List.of(setup.leftWingTip(), setup.rightWingTip())) {
+                if (world.getBlockState(marker).isAir()) return "Wing-tip markers must point to real selected blocks.";
+            }
         }
         if (setup.nose() != null && world.getBlockState(setup.nose()).isAir()) {
             return "The nose marker must point to a real selected block.";
@@ -488,6 +601,18 @@ public class VehicleActivator {
                 return "Every propeller hub must have at least one nearby blade assigned to it.";
             }
         }
+        if (setup.mode() == VehicleMode.HELICOPTER) {
+            double centerX = (Math.min(min.getX(), max.getX()) + Math.max(min.getX(), max.getX()) + 1.0) * 0.5;
+            double centerZ = (Math.min(min.getZ(), max.getZ()) + Math.max(min.getZ(), max.getZ()) + 1.0) * 0.5;
+            double allowed = Math.max(2.5, Math.max(width, length) * 0.38);
+            boolean centeredMainRotor = setup.propellerHubs().stream().anyMatch(hub -> {
+                Direction axis = setup.propellerAxes().getOrDefault(hub, Direction.UP);
+                double dx = hub.getX() + 0.5 - centerX;
+                double dz = hub.getZ() + 0.5 - centerZ;
+                return axis.getAxis() == Direction.Axis.Y && dx * dx + dz * dz <= allowed * allowed;
+            });
+            if (!centeredMainRotor) return "A vertical-axis main rotor hub must be near the helicopter's center.";
+        }
         return null;
     }
 
@@ -501,7 +626,8 @@ public class VehicleActivator {
         java.util.function.Predicate<BlockPos> inside = pos -> pos != null && pos.getX() >= minX && pos.getX() <= maxX
             && pos.getY() >= minY && pos.getY() <= maxY && pos.getZ() >= minZ && pos.getZ() <= maxZ;
         if (setup.nose() != null && !inside.test(setup.nose())) return false;
-        if (!inside.test(setup.leftWingTip()) || !inside.test(setup.rightWingTip())) return false;
+        if (setup.mode() == VehicleMode.PLANE
+            && (!inside.test(setup.leftWingTip()) || !inside.test(setup.rightWingTip()))) return false;
         for (BlockPos pos : setup.propellerHubs()) if (!inside.test(pos)) return false;
         for (BlockPos pos : setup.propellerBlades()) if (!inside.test(pos)) return false;
         return true;

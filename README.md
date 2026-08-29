@@ -24,6 +24,14 @@ For a plane:
 
 Propeller blades render as synchronized rigid block assemblies around their hubs. They are cosmetic for collision in this version; the aircraft body uses cached swept collision probes.
 
+For a helicopter:
+
+1. Select the complete build and mark a real **driver seat**.
+2. In **Helicopter / Nose**, right-click the front/nose block. This enables Helicopter mode and defines forward. Sneak-right-click switches back to Ground mode.
+3. In **Propeller**, right-click the **top or bottom face** of the main rotor hub, then sneak-right-click each blade block. This vertical axis is required and the hub should be near the build's horizontal center.
+4. Optionally add a tail rotor: right-click a horizontal face of its hub and mark its blades. A tail rotor gives noticeably stronger yaw control; without one, main-rotor torque must be corrected manually.
+5. Mark bottom wheels/skids as landing contacts if desired, then activate. Any number of blade blocks may form one synchronized rotor assembly around its hub.
+
 ## Controls
 
 Ground vehicle:
@@ -42,16 +50,32 @@ Plane:
 | --- | --- |
 | W / S | Increase / decrease throttle |
 | A / D | Roll; steer while taxiing |
-| Q / E | Rudder left / right |
+| Left / right mouse button | Rudder left / right while piloting |
 | Up / Down | Direct pitch up / down |
-| Mouse | Gentle, rate-limited pitch and heading guidance |
-| Left Alt | Stunt mode while held (greatly reduces flight assistance) |
+| Mouse look | Gentle, rate-limited pitch and heading guidance; looking up rotates for takeoff once runway speed is high enough |
+| Left Alt | Stunt mode while held: faster aerobatic control, stronger flight-path following, and reduced auto-leveling |
 | Space | Airbrake; wheel brake on the ground |
 | Shift | Dismount |
 
-Q and E do not drop an item or open inventory while piloting. All dedicated plane actions are configurable in Minecraft's Controls screen.
+Helicopter:
+
+| Key | Action |
+| --- | --- |
+| W / S | Cyclic forward / backward pitch |
+| A / D | Cyclic right / left roll |
+| Space | Collective up; hold while tilted to maintain altitude |
+| Left Ctrl | Collective down |
+| Left / right mouse button | Yaw left / right |
+| Left Alt | Precision mode: softer cyclic/yaw response |
+| Shift | Dismount |
+
+Rotors spool up after mounting. Neutral collective approximately hovers only when level; banking or pitching redirects rotor lift horizontally and causes a gradual descent unless Space is held. Forward speed improves rotor efficiency, low-altitude ground effect adds a small lift cushion, and a steep low-speed powered descent can enter vortex-ring state. Recover by lowering collective and moving forward or sideways. An unpiloted descending helicopter gets limited autorotation rather than hovering.
+
+Mouse rudder is active only while controlling a plane, so normal mouse actions and unrelated keybindings work normally after dismounting. Attacking, mining, and using items are suppressed while controlling any BlockVehicle so the control clicks never swing the rider's arm or affect the world. The pitch and stunt actions remain configurable in Minecraft's Controls screen.
 
 Planes preserve momentum: climbing trades speed for height, diving gains speed, banking turns the lift vector, sharp maneuvers add drag, and low-speed/high-angle flight stalls gradually. With no pilot, an airborne plane continues falling/gliding and eases its throttle toward idle.
+
+Engine audio adapts to the build: two or three marked wheels use the faster bike loop, four wheels use the car loop, and more than four use the heavy/monster-truck loop. Planes have a separate propeller-engine layer and quiet speed-based wind. Ground brakes, drifts, doors, and engine transitions use restrained one-shot sounds with smooth loop fades.
 
 ## Presets and removal
 
@@ -64,7 +88,7 @@ Save the selected blocks before activation:
 /vehiclepreset delete <custom name>
 ```
 
-Names can contain spaces. Presets are stored with the world and include plane mode, markers, seats, landing gear, propeller groups, and cached tuning. Old presets without a mode remain Ground vehicles.
+Names can contain spaces. Presets are stored with the world and include aircraft mode, markers, seats, landing gear, rotor/propeller groups, and cached tuning. Old presets without a mode remain Ground vehicles.
 
 `/removevehicle` restores a nearby vehicle to blocks. A plane must be landed, slow, and nearly level, and its cardinal-aligned restoration space must be clear. Operators can use `/removevehicle force` for the same collision-safe restoration check without the landed-state requirement.
 
@@ -94,10 +118,12 @@ Values are clamped to server-safe ranges when loaded.
 
 ## Technical notes
 
-- Ground and plane physics remain separate.
-- Plane orientation uses quaternions, including rendering, collision probes, and passenger positions.
+- Ground, plane, and helicopter force models remain separate.
+- Aircraft orientation uses quaternions, including rendering, collision probes, camera cues, and passenger positions.
 - The server simulates authoritative flight from sequence-numbered input packets; the local pilot predicts and softly reconciles while observers interpolate snapshots.
 - Geometry, mass, wing measurements, contact samples, collision extremities, and propeller render groups are cached rather than scanned every tick.
+- Local plane reconciliation ignores harmless sub-block prediction noise and applies bounded corrections, preventing delayed chunk-render frames from producing visible backward tugs.
+- Distant vehicles retain their cached body mesh while tiny signs, item frames, and decorative dynamic blocks use distance-based LOD.
 - Swept/substep collision protects the nose, wings, tail, top, and bottom and safely holds planes at unloaded chunks/world bounds.
 - Engine/wind loops and render caches are bounded per vehicle and released when entities unload.
 

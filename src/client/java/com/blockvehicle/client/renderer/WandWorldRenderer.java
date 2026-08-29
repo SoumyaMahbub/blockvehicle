@@ -123,6 +123,12 @@ public final class WandWorldRenderer {
                         tb = 1.0f;
                         break;
                     }
+                    case SET_HELICOPTER_NOSE: {
+                        tr = 0.15f;
+                        tg = 1.0f;
+                        tb = 0.55f;
+                        break;
+                    }
                     case SET_WING_TIPS: {
                         tr = 0.95f;
                         tg = 0.25f;

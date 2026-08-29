@@ -17,7 +17,7 @@ public abstract class PlaneFovMixin {
     private void blockvehicle$fitLargePlane(Camera camera, float tickDelta, boolean changingFov,
                                              CallbackInfoReturnable<Float> cir) {
         if (!camera.isThirdPerson() || !(camera.getFocusedEntity().getVehicle() instanceof VehicleEntity plane)
-            || !plane.isPlane() || plane.getStructure() == null) return;
+            || !plane.isAircraft() || plane.getStructure() == null) return;
         double planSize = Math.max(plane.getStructure().getWidth(), plane.getStructure().getLength());
         double boost = MathHelper.clamp((planSize - 6.0) * 0.45, 0.0,
             BlockVehicleConfig.get().cameraMaxFovBoost);

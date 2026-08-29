@@ -15,15 +15,15 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.Entity;
 import net.minecraft.network.packet.CustomPayload;
+import org.lwjgl.glfw.GLFW;
 
 @Environment(value=EnvType.CLIENT)
 public final class VehicleInputHandler {
     public static KeyBinding HORN_KEY;
     public static KeyBinding PLANE_PITCH_UP_KEY;
     public static KeyBinding PLANE_PITCH_DOWN_KEY;
-    public static KeyBinding PLANE_YAW_LEFT_KEY;
-    public static KeyBinding PLANE_YAW_RIGHT_KEY;
     public static KeyBinding PLANE_STUNT_KEY;
+    public static KeyBinding HELICOPTER_DESCEND_KEY;
     private static VehicleInputState lastSentInput = VehicleInputState.EMPTY;
     private static int lastSentVehicleId = -1;
     private static int sendCooldown = 0;
@@ -36,9 +36,8 @@ public final class VehicleInputHandler {
         HORN_KEY = KeyBindingHelper.registerKeyBinding((KeyBinding)new KeyBinding("key.blockvehicle.horn", InputUtil.Type.KEYSYM, 72, "key.categories.misc"));
         PLANE_PITCH_UP_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.blockvehicle.plane_pitch_up", InputUtil.Type.KEYSYM, 265, "category.blockvehicle"));
         PLANE_PITCH_DOWN_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.blockvehicle.plane_pitch_down", InputUtil.Type.KEYSYM, 264, "category.blockvehicle"));
-        PLANE_YAW_LEFT_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.blockvehicle.plane_yaw_left", InputUtil.Type.KEYSYM, 81, "category.blockvehicle"));
-        PLANE_YAW_RIGHT_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.blockvehicle.plane_yaw_right", InputUtil.Type.KEYSYM, 69, "category.blockvehicle"));
         PLANE_STUNT_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.blockvehicle.plane_stunt", InputUtil.Type.KEYSYM, 342, "category.blockvehicle"));
+        HELICOPTER_DESCEND_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.blockvehicle.helicopter_descend", InputUtil.Type.KEYSYM, 341, "category.blockvehicle"));
     }
 
     public static void onStartTick(MinecraftClient client) {
@@ -56,6 +55,18 @@ public final class VehicleInputHandler {
         if (ve.getControllingPassenger() != client.player) {
             return;
         }
+        // Rudder uses the physical mouse buttons, but vanilla must not leave an
+        // old mining/item-use action or hand swing active after mounting.
+        if (client.interactionManager != null) {
+            client.interactionManager.cancelBlockBreaking();
+            if (client.player.isUsingItem()) {
+                client.interactionManager.stopUsingItem(client.player);
+            }
+        }
+        client.player.handSwinging = false;
+        client.player.handSwingTicks = 0;
+        client.player.lastHandSwingProgress = 0.0f;
+        client.player.handSwingProgress = 0.0f;
         GameOptions options = client.options;
         boolean forward = options.forwardKey.isPressed();
         boolean backward = options.backKey.isPressed();
@@ -69,10 +80,12 @@ public final class VehicleInputHandler {
             }
         }
         boolean pitchUp = ve.isPlane() && PLANE_PITCH_UP_KEY.isPressed();
-        boolean pitchDown = ve.isPlane() && PLANE_PITCH_DOWN_KEY.isPressed();
-        boolean yawLeft = ve.isPlane() && PLANE_YAW_LEFT_KEY.isPressed();
-        boolean yawRight = ve.isPlane() && PLANE_YAW_RIGHT_KEY.isPressed();
-        boolean stunt = ve.isPlane() && PLANE_STUNT_KEY.isPressed();
+        boolean pitchDown = ve.isPlane() && PLANE_PITCH_DOWN_KEY.isPressed()
+            || ve.isHelicopter() && HELICOPTER_DESCEND_KEY.isPressed();
+        long window = client.getWindow().getHandle();
+        boolean yawLeft = ve.isAircraft() && GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        boolean yawRight = ve.isAircraft() && GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
+        boolean stunt = ve.isAircraft() && PLANE_STUNT_KEY.isPressed();
         VehicleInputState input = new VehicleInputState(forward, backward, left, right, brake,
             pitchUp, pitchDown, yawLeft, yawRight, stunt, client.player.getYaw(), client.player.getPitch());
         ve.setInputState(input);
@@ -101,7 +114,7 @@ public final class VehicleInputHandler {
         if (!vehicleChanged && !controlsChanged && sendCooldown < interval) {
             return;
         }
-        if (ve.isPlane() && ClientPlayNetworking.canSend(PlaneInputPayload.ID)) {
+        if (ve.isAircraft() && ClientPlayNetworking.canSend(PlaneInputPayload.ID)) {
             int flags = 0;
             if (input.forward) flags |= 1;
             if (input.backward) flags |= 2;

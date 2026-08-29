@@ -79,7 +79,7 @@ extends Block {
             player.sendMessage(Text.literal("\u00a7c" + selectionError), false);
             return;
         }
-        if (planeSetup.mode() == VehicleMode.PLANE) {
+        if (planeSetup.isAircraft()) {
             long volume = (long)(Math.abs(corner1.getX() - corner2.getX()) + 1)
                 * (Math.abs(corner1.getY() - corner2.getY()) + 1L)
                 * (Math.abs(corner1.getZ() - corner2.getZ()) + 1L);
@@ -96,6 +96,16 @@ extends Block {
                     if (!preview.getPlaneDefinition().hasEngines()) player.sendMessage(Text.literal("\u00a7eWarning: no valid propeller; this will be a glider."), false);
                     if (preview.getWheels().isEmpty()) player.sendMessage(Text.literal("\u00a7eWarning: no landing gear markers; body contacts will be used."), false);
                     if (preview.getPlaneDefinition().asymmetry() > 0.28f) player.sendMessage(Text.literal("\u00a7eWarning: the wing layout is strongly asymmetric."), false);
+                } else if (preview.isHelicopter()) {
+                    long mainRotors = preview.getPlaneDefinition().propellers().stream().filter(rotor -> Math.abs(rotor.axis().y) >= 0.7).count();
+                    long tailRotors = preview.getPlaneDefinition().propellers().size() - mainRotors;
+                    long passengers = preview.getSeats().stream().filter(seat -> !seat.isDriver).count();
+                    player.sendMessage(Text.literal(String.format("\u00a7a HELICOPTER \u00a77| \u00a7f%d blocks \u00a77| \u00a7f%.1f mass \u00a77| \u00a7f1 driver + %d passengers",
+                        preview.getBlocks().size(), preview.getTotalMass(), passengers)), false);
+                    player.sendMessage(Text.literal(String.format("\u00a77Rotor diameter: \u00a7f%.1f \u00a77| main rotors: \u00a7f%d \u00a77| tail rotors: \u00a7f%d \u00a77| balance offset: \u00a7f%.1f",
+                        preview.getPlaneDefinition().wingSpan(), mainRotors, tailRotors, preview.getPlaneDefinition().balanceOffset())), false);
+                    if (tailRotors == 0) player.sendMessage(Text.literal("\u00a7eNo tail rotor: yaw control will be weaker."), false);
+                    if (preview.getPlaneDefinition().asymmetry() > 0.45f) player.sendMessage(Text.literal("\u00a7eMain rotor is far from the center of mass; hovering will require correction."), false);
                 }
             }
         }
@@ -138,8 +148,8 @@ extends Block {
         player.startRiding(vehicle);
         vehicle.mountAsDriver(player);
         VehicleWandItem.clearCorners(player);
-        String type = structure.isPlane() ? "Plane" : "Vehicle";
-        String planeDetails = structure.isPlane() ? ", " + structure.getPlaneDefinition().propellers().size() + " propellers" : "";
+        String type = structure.isPlane() ? "Plane" : structure.isHelicopter() ? "Helicopter" : "Vehicle";
+        String planeDetails = structure.isAircraft() ? ", " + structure.getPlaneDefinition().propellers().size() + " rotors/propellers" : "";
         player.sendMessage((Text)Text.literal(("\u00a7a" + type + " activated! \u00a77(" + structure.getBlocks().size() + " blocks, " + structure.getSeats().size() + " seats, " + structure.getWheels().size() + " wheels" + planeDetails + "). Right-click vehicle to drive.")), false);
         return true;
     }

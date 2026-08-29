@@ -105,6 +105,18 @@ extends Item {
                 world.playSound(null, pos, SoundEvents.UI_BUTTON_CLICK.value(), SoundCategory.PLAYERS, 0.9f, 1.25f);
                 break;
             }
+            case SET_HELICOPTER_NOSE: {
+                if (player.isSneaking()) {
+                    PlayerDataStore.clearPlaneSetup(player.getUuid());
+                    player.sendMessage(Text.literal("\u00a7aVehicle mode set to \u00a7fGROUND\u00a7a."), true);
+                } else {
+                    PlayerDataStore.setHelicopterNose(player.getUuid(), pos);
+                    player.sendMessage(Text.literal("\u00a7aHELICOPTER mode enabled. Nose set to \u00a7f" + pos.toShortString()
+                        + " \u00a77(now mark a main rotor hub by clicking its top/bottom face)"), true);
+                }
+                world.playSound(null, pos, SoundEvents.UI_BUTTON_CLICK.value(), SoundCategory.PLAYERS, 0.75f, 0.95f);
+                break;
+            }
             case SET_WING_TIPS: {
                 if (player.isSneaking()) {
                     PlayerDataStore.setRightWingTip(player.getUuid(), pos);
@@ -209,7 +221,7 @@ extends Item {
         String c1str = c1 != null ? "\u00a7a" + c1.toShortString() : "\u00a7cnot set";
         String c2str = c2 != null ? "\u00a7a" + c2.toShortString() : "\u00a7cnot set";
         String driverStr = driver != null ? "\u00a7a" + driver.toShortString() + " (" + String.valueOf(driverFacing) + ")"
-            : plane.mode() == VehicleMode.PLANE ? "\u00a7cnot set (required for planes)" : "\u00a77auto (stairs/center)";
+            : plane.isAircraft() ? "\u00a7cnot set (required for aircraft)" : "\u00a77auto (stairs/center)";
         Object wheelStr = wheelCount > 0 ? "\u00a7e" + wheelCount : "\u00a77auto (bottom black blocks)";
         player.sendMessage((Text)Text.literal("\u00a76\u2500\u2500\u2500 Vehicle Wand Status \u2500\u2500\u2500"), false);
         player.sendMessage((Text)Text.literal(("\u00a77Current Mode: " + mode.title)), false);
@@ -220,6 +232,13 @@ extends Item {
             String setup = plane.isCompletePlane() && driver != null ? "\u00a7aREADY" : "\u00a7eNeeds driver + both wing tips";
             player.sendMessage(Text.literal("\u00a7bPlane: " + setup + " \u00a77| Propellers: \u00a7e" + plane.propellerHubs().size()
                 + " \u00a77| Blades: \u00a7e" + plane.propellerBlades().size()), false);
+        } else if (plane.mode() == VehicleMode.HELICOPTER) {
+            long mainRotors = plane.propellerHubs().stream().filter(hub ->
+                plane.propellerAxes().getOrDefault(hub, Direction.UP).getAxis() == Direction.Axis.Y).count();
+            long tailRotors = plane.propellerHubs().size() - mainRotors;
+            String setup = plane.isCompleteHelicopter() && driver != null ? "\u00a7aREADY" : "\u00a7eNeeds driver + main rotor/blades";
+            player.sendMessage(Text.literal("\u00a7aHelicopter: " + setup + " \u00a77| Main rotors: \u00a7e" + mainRotors
+                + " \u00a77| Tail rotors: \u00a7e" + tailRotors + " \u00a77| Blades: \u00a7e" + plane.propellerBlades().size()), false);
         } else {
             player.sendMessage(Text.literal("\u00a77Vehicle Type: \u00a7fGROUND"), false);
         }
@@ -239,6 +258,7 @@ extends Item {
         tooltip.add((Text)Text.literal("  \u00a7d\ud83d\udc65 Passenger Seats"));
         tooltip.add((Text)Text.literal("  \u00a7e\ud83d\ude97 Custom Wheels"));
         tooltip.add(Text.literal("  \u00a7b\u2708 Plane / Nose & Wing Tips"));
+        tooltip.add(Text.literal("  \u00a7a Helicopter / Nose & Rotors"));
         tooltip.add(Text.literal("  \u00a7e\u2699 Multi-block Propellers"));
         tooltip.add((Text)Text.literal("  \u00a7a\u26a1 Activate Vehicle"));
         tooltip.add((Text)Text.literal(""));

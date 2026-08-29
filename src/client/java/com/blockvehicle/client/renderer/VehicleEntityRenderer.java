@@ -80,7 +80,7 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
         state.steeringAngle = MathHelper.lerp((float)tickDelta, (float)entity.getPrevSteeringAngle(), (float)entity.getSteeringAngle());
         state.visualYOffset = MathHelper.lerp((float)tickDelta, (float)entity.getPrevVisualYOffset(), (float)entity.getVisualYOffset());
         state.tiltLift = MathHelper.lerp((float)tickDelta, (float)entity.getPrevTiltLift(), (float)entity.getTiltLift());
-        state.isPlane = entity.isPlane();
+        state.isPlane = entity.isAircraft();
         state.aircraftOrientation = entity.getPrevRelativeAircraftOrientation().slerp(entity.getRelativeAircraftOrientation(), tickDelta).normalize();
         float propellerDelta = MathHelper.wrapDegrees(entity.getPropellerAngle() - entity.getPrevPropellerAngle());
         state.propellerAngle = MathHelper.wrapDegrees(entity.getPrevPropellerAngle() + propellerDelta * tickDelta);
@@ -101,6 +101,8 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
             this.meshWorld = client.world;
         }
         BlockRenderManager blockRenderManager = client.getBlockRenderManager();
+        boolean decorationLod = state.squaredDistanceToCamera > 64.0 * 64.0;
+        boolean distantLod = state.squaredDistanceToCamera > 96.0 * 96.0;
         matrices.push();
         VehicleStructure struct = state.structure;
         matrices.translate(0.0, (double)(state.visualYOffset + (state.isPlane ? 0.0f : state.tiltLift)), 0.0);
@@ -139,6 +141,12 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
             boolean bl = isSteering = struct != null && struct.isSteeringWheel(sb.rx(), sb.ry(), sb.rz());
             PlaneDefinition.PropellerAssembly propeller = struct != null && struct.getPlaneDefinition() != null
                 ? struct.getPlaneDefinition().getPropellerForBlade(sb.rx(), sb.ry(), sb.rz()) : null;
+            // The cached body mesh preserves the distant silhouette. Avoid
+            // individually submitting glass, signs and other decorative blocks
+            // once they are too small to see; wheels and propellers stay animated.
+            if (distantLod && !isWheel && propeller == null) {
+                continue;
+            }
             if (!isWheel && propeller == null && this.isBakedStaticBlock(sb)) {
                 continue;
             }
@@ -162,32 +170,34 @@ extends EntityRenderer<VehicleEntity, VehicleEntityRenderer.VehicleRenderState> 
             }
             if (sb.state().getRenderType() == BlockRenderType.MODEL) {
                 blockRenderManager.renderBlockAsEntity(sb.state(), matrices, vertexConsumers, light, OverlayTexture.DEFAULT_UV);
-            } else if (sb.state().getBlock() instanceof AbstractSignBlock) {
+            } else if (!decorationLod && sb.state().getBlock() instanceof AbstractSignBlock) {
                 this.renderSignBlock(client, sb, matrices, vertexConsumers, light);
             }
             matrices.pop();
         }
-        for (VehicleStructure.StoredItemFrame frame : state.itemFrames) {
-            ItemStack stack;
-            matrices.push();
-            matrices.translate(frame.rx(), frame.ry(), frame.rz());
-            Direction facing = Direction.byName(frame.facingName());
-            if (facing == null) {
-                facing = Direction.NORTH;
+        if (!decorationLod) {
+            for (VehicleStructure.StoredItemFrame frame : state.itemFrames) {
+                ItemStack stack;
+                matrices.push();
+                matrices.translate(frame.rx(), frame.ry(), frame.rz());
+                Direction facing = Direction.byName(frame.facingName());
+                if (facing == null) {
+                    facing = Direction.NORTH;
+                }
+                float facingYaw = switch (facing) {
+                    case Direction.SOUTH -> 0.0f;
+                    case Direction.WEST -> 90.0f;
+                    case Direction.NORTH -> 180.0f;
+                    case Direction.EAST -> 270.0f;
+                    default -> 0.0f;
+                };
+                matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-facingYaw));
+                matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees((float)frame.rotation() * 45.0f));
+                if (frame.itemTag() != null && client.world != null && !(stack = ItemStack.fromNbtOrEmpty((RegistryWrapper.WrapperLookup)client.world.getRegistryManager(), (NbtCompound)frame.itemTag())).isEmpty()) {
+                    client.getItemRenderer().renderItem(stack, ModelTransformationMode.FIXED, light, OverlayTexture.DEFAULT_UV, matrices, vertexConsumers, client.world, 0);
+                }
+                matrices.pop();
             }
-            float facingYaw = switch (facing) {
-                case Direction.SOUTH -> 0.0f;
-                case Direction.WEST -> 90.0f;
-                case Direction.NORTH -> 180.0f;
-                case Direction.EAST -> 270.0f;
-                default -> 0.0f;
-            };
-            matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-facingYaw));
-            matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees((float)frame.rotation() * 45.0f));
-            if (frame.itemTag() != null && client.world != null && !(stack = ItemStack.fromNbtOrEmpty((RegistryWrapper.WrapperLookup)client.world.getRegistryManager(), (NbtCompound)frame.itemTag())).isEmpty()) {
-                client.getItemRenderer().renderItem(stack, ModelTransformationMode.FIXED, light, OverlayTexture.DEFAULT_UV, matrices, vertexConsumers, client.world, 0);
-            }
-            matrices.pop();
         }
         matrices.pop();
         this.cleanupMeshCache(client);

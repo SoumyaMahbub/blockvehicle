@@ -267,7 +267,7 @@ public final class VehicleCollisionHandler {
         if (nearby.isEmpty()) {
             return;
         }
-        if (vehicle.isPlane()) {
+        if (vehicle.isAircraft()) {
             handlePlaneEntityCollisions(vehicle, structure, world, nearby);
             return;
         }
@@ -508,7 +508,7 @@ public final class VehicleCollisionHandler {
     }
 
     private static void applyVehicleImpact(VehicleEntity vehicle, double impulseX, double impulseY, double impulseZ, float angularImpulse) {
-        if (vehicle.isPlane()) {
+        if (vehicle.isAircraft()) {
             // Plane motion is server-authoritative, so the canonical velocity must
             // receive the impulse even when a pilot is predicting on the client.
             vehicle.applyCollisionImpulse(impulseX, impulseY, impulseZ, angularImpulse);

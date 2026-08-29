@@ -2,7 +2,8 @@ package com.blockvehicle.vehicle;
 
 public enum VehicleMode {
     GROUND,
-    PLANE;
+    PLANE,
+    HELICOPTER;
 
     public static VehicleMode byName(String name) {
         if (name == null) {

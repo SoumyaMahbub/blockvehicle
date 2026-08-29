@@ -179,7 +179,7 @@ public class VehicleStructure {
         this.localOrigin = localOrigin;
         this.initialYaw = initialYaw;
         this.mode = mode != null ? mode : VehicleMode.GROUND;
-        this.planeDefinition = this.mode == VehicleMode.PLANE ? planeDefinition : null;
+        this.planeDefinition = this.mode != VehicleMode.GROUND ? planeDefinition : null;
         float f = 0.0f;
         double minX = Double.POSITIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY;
@@ -281,6 +281,14 @@ public class VehicleStructure {
         return this.mode == VehicleMode.PLANE && this.planeDefinition != null;
     }
 
+    public boolean isHelicopter() {
+        return this.mode == VehicleMode.HELICOPTER && this.planeDefinition != null;
+    }
+
+    public boolean isAircraft() {
+        return (this.mode == VehicleMode.PLANE || this.mode == VehicleMode.HELICOPTER) && this.planeDefinition != null;
+    }
+
     public PlaneDefinition getPlaneDefinition() {
         return this.planeDefinition;
     }
@@ -306,7 +314,7 @@ public class VehicleStructure {
 
     public NbtCompound toNbt() {
         NbtCompound tag = new NbtCompound();
-        tag.putInt("schemaVersion", 2);
+        tag.putInt("schemaVersion", 3);
         NbtList blockList = new NbtList();
         for (StoredBlock storedBlock : this.blocks) {
             blockList.add(storedBlock.toNbt());
@@ -372,10 +380,15 @@ public class VehicleStructure {
         Vec3d origin = new Vec3d(tag.getDouble("originX"), tag.getDouble("originY"), tag.getDouble("originZ"));
         float yaw = tag.getFloat("initialYaw");
         VehicleMode mode = tag.contains("vehicleMode") ? VehicleMode.byName(tag.getString("vehicleMode")) : VehicleMode.GROUND;
-        PlaneDefinition plane = mode == VehicleMode.PLANE && tag.contains("plane")
+        PlaneDefinition plane = mode != VehicleMode.GROUND && tag.contains("plane")
             ? PlaneDefinition.fromNbt(tag.getCompound("plane")) : null;
         if (mode == VehicleMode.PLANE && (plane == null || plane.nose() == null
             || plane.leftWingTip() == null || plane.rightWingTip() == null)) {
+            mode = VehicleMode.GROUND;
+            plane = null;
+        }
+        if (mode == VehicleMode.HELICOPTER && (plane == null || plane.nose() == null
+            || plane.propellers().stream().noneMatch(rotor -> Math.abs(rotor.axis().y) >= 0.7 && !rotor.blades().isEmpty()))) {
             mode = VehicleMode.GROUND;
             plane = null;
         }

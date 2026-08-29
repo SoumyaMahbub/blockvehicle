@@ -111,6 +111,17 @@ public final class PlayerDataStore {
         planeNoseMap.put(uuid, pos);
     }
 
+    public static void setHelicopterNose(UUID uuid, BlockPos pos) {
+        vehicleModeMap.put(uuid, VehicleMode.HELICOPTER);
+        planeNoseMap.put(uuid, pos);
+        leftWingMap.remove(uuid);
+        rightWingMap.remove(uuid);
+    }
+
+    public static void setVehicleMode(UUID uuid, VehicleMode mode) {
+        vehicleModeMap.put(uuid, mode != null ? mode : VehicleMode.GROUND);
+    }
+
     public static void setLeftWingTip(UUID uuid, BlockPos pos) {
         vehicleModeMap.put(uuid, VehicleMode.PLANE);
         leftWingMap.put(uuid, pos);
@@ -130,7 +141,7 @@ public final class PlayerDataStore {
     }
 
     public static boolean togglePropellerHub(UUID uuid, BlockPos pos, Direction axis) {
-        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        vehicleModeMap.putIfAbsent(uuid, VehicleMode.PLANE);
         Set<BlockPos> set = propellerHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>());
         if (set.remove(pos)) {
             propellerAxesMap.computeIfAbsent(uuid, ignored -> new HashMap<>()).remove(pos);
@@ -143,7 +154,7 @@ public final class PlayerDataStore {
     }
 
     public static void setPropellerHub(UUID uuid, BlockPos pos, Direction axis, boolean clockwise) {
-        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        vehicleModeMap.putIfAbsent(uuid, VehicleMode.PLANE);
         propellerHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>()).add(pos);
         propellerAxesMap.computeIfAbsent(uuid, ignored -> new HashMap<>()).put(pos, axis != null ? axis : Direction.SOUTH);
         Set<BlockPos> reversed = counterClockwiseHubsMap.computeIfAbsent(uuid, ignored -> new HashSet<>());
@@ -159,7 +170,7 @@ public final class PlayerDataStore {
     }
 
     public static boolean togglePropellerBlade(UUID uuid, BlockPos pos) {
-        vehicleModeMap.put(uuid, VehicleMode.PLANE);
+        vehicleModeMap.putIfAbsent(uuid, VehicleMode.PLANE);
         Set<BlockPos> set = propellerBladesMap.computeIfAbsent(uuid, ignored -> new HashSet<>());
         return set.remove(pos) ? false : set.add(pos);
     }
@@ -238,6 +249,7 @@ public final class PlayerDataStore {
         SET_PASSENGER_SEAT("\u00a7d\ud83d\udc65 Add/Remove Passenger Seat", "Right-click any block to toggle Passenger Seat"),
         SET_WHEEL("\u00a7e\ud83d\ude97 Add/Remove Wheel", "Right-click any block to toggle as rotating Wheel"),
         SET_PLANE_NOSE("\u00a7b\u2708 Plane / Nose", "Right-click nose = Plane Mode | Sneak+Right-click = Ground Mode"),
+        SET_HELICOPTER_NOSE("\u00a7a Helicopter / Nose", "Right-click nose = Helicopter Mode | main rotor axis must face UP/DOWN"),
         SET_WING_TIPS("\u00a7d\u2194 Plane Wing Tips", "Right-click = Left Wing | Sneak+Right-click = Right Wing"),
         SET_PROPELLER("\u00a7e\u2699 Plane Propeller", "Right-click hub face = Axis | Sneak hub = Reverse spin | Sneak blade = Toggle"),
         ACTIVATE("\u00a7a\u26a1 Activate Vehicle", "Right-click in air or on build to activate!");
