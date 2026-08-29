@@ -21,15 +21,29 @@ public final class HelicopterPhysics {
         float collective = finite(state.collective) ? MathHelper.clamp(state.collective, 0.0f, 1.0f) : 0.0f;
         float safeRpm = finite(state.rotorRpm) ? MathHelper.clamp(state.rotorRpm, 0.0f, 1.08f) : 0.0f;
 
-        // Space is collective-up, Left Ctrl/down-arrow is collective-down. With
-        // neither held, the neutral setting can hover only while nearly level.
-        float collectiveTarget = !hasPilot ? 0.10f : input.brake && !input.pitchDown ? 0.94f
-            : input.pitchDown && !input.brake ? 0.13f : 0.555f;
-        collective = approach(collective, collectiveTarget, input.brake || input.pitchDown ? 0.040f : 0.025f);
         float autorotation = !hasPilot && velocity.y < -0.10
             ? MathHelper.clamp((float)(-velocity.y - 0.10) * 1.6f, 0.0f, 0.42f) : 0.0f;
         float rpmTarget = definition.hasEngines() ? (hasPilot ? 1.0f : autorotation) : 0.0f;
         float rotorRpm = approach(safeRpm, rpmTarget, rpmTarget > safeRpm ? 0.028f : 0.016f);
+        double horizontalSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+        float translationalLift = MathHelper.clamp((float)(horizontalSpeed - 0.16) / 0.72f, 0.0f, 1.0f) * 0.08f;
+        float groundEffect = nearGround && !grounded
+            ? MathHelper.clamp(1.0f - (float)Math.abs(velocity.y) * 3.0f, 0.0f, 1.0f) * 0.07f : 0.0f;
+        float powerToWeight = MathHelper.clamp(definition.liftScale() * (float)Math.sqrt(definition.enginePower())
+            / Math.max(0.76f, weightFactor * 0.82f), 0.78f, 1.28f);
+        float liftEfficiency = 0.145f * Math.max(0.12f, rotorRpm * rotorRpm) * powerToWeight
+            * (1.0f + translationalLift + groundEffect);
+        float hoverCollective = MathHelper.clamp(GRAVITY / liftEfficiency, 0.34f, 0.84f);
+
+        // The neutral position is trimmed for this build's mass and rotor power.
+        // Space/Control move above/below that trim instead of selecting two fixed
+        // values that made light builds rocket upward and heavy builds sink.
+        float collectiveTarget = !hasPilot ? 0.10f
+            : input.brake && !input.pitchDown ? Math.min(1.0f, hoverCollective + 0.14f)
+            : input.pitchDown && !input.brake ? Math.max(0.05f, hoverCollective - 0.18f)
+            : hoverCollective;
+        float collectiveResponse = input.brake || input.pitchDown ? 0.052f : 0.065f;
+        collective = approach(collective, collectiveTarget, collectiveResponse);
 
         float pitchInput = bool(input.backward) - bool(input.forward);
         float rollInput = bool(input.right) - bool(input.left);
@@ -38,33 +52,35 @@ public final class HelicopterPhysics {
         float roll = AircraftOrientation.rollDegrees(orientation);
         boolean precision = input.stunt;
         float response = precision ? 0.68f : 1.0f;
-        float maxTiltRate = grounded ? 0.75f : 3.25f * response;
-        float pitchTarget = pitchInput * maxTiltRate;
-        float rollTarget = rollInput * (grounded ? 0.65f : 3.55f * response);
-
-        // A little rate damping makes a keyboard-controlled helicopter readable,
-        // but it deliberately does not auto-hover or erase a pilot's bank.
-        if (Math.abs(pitchInput) < 0.01f) pitchTarget += MathHelper.clamp(-pitch * 0.045f, -0.82f, 0.82f);
-        if (Math.abs(rollInput) < 0.01f) rollTarget += MathHelper.clamp(-roll * 0.050f, -0.92f, 0.92f);
+        float maximumTilt = grounded ? 8.0f : precision ? 18.0f : 28.0f;
+        float desiredPitch = pitchInput * maximumTilt;
+        float desiredRoll = rollInput * maximumTilt;
+        float pitchError = MathHelper.wrapDegrees(desiredPitch - pitch);
+        float rollError = MathHelper.wrapDegrees(desiredRoll - roll);
+        // Cyclic commands a bounded attitude, not an endless angular rate. This
+        // gives W/S and A/D the GTA-like lean-and-hold behavior and makes a 360
+        // impossible unless a separate aerobatic control is added deliberately.
+        float pitchTarget = MathHelper.clamp(pitchError * 0.13f, -2.75f, 2.75f) * response;
+        float rollTarget = MathHelper.clamp(rollError * 0.14f, -3.0f, 3.0f) * response;
         float tailAuthority = definition.takeoffSpeed(); // geometry-derived: tail rotor or torque-only yaw
-        float yawTarget = yawInput * (1.45f + tailAuthority * 1.55f) * response;
+        float yawTarget = yawInput * (0.82f + tailAuthority * 1.0f) * response;
         if (!hasPilot) yawTarget = 0.0f;
         if (tailAuthority < 0.60f && rotorRpm > 0.45f) {
             // A rotorcraft without a marked tail rotor remains flyable, but main
             // rotor torque has to be actively corrected by the pilot.
             yawTarget += (definition.propellers().get(0).clockwise() ? -1.0f : 1.0f)
-                * collective * rotorRpm * 0.34f;
+                * collective * rotorRpm * 0.16f;
         }
 
         float pitchRate = clampFinite(state.pitchRate, -4.2f, 4.2f);
         float rollRate = clampFinite(state.rollRate, -4.6f, 4.6f);
         float yawRate = clampFinite(state.yawRate, -3.2f, 3.2f);
-        pitchRate += (pitchTarget - pitchRate) * 0.20f;
-        rollRate += (rollTarget - rollRate) * 0.20f;
-        yawRate += (yawTarget - yawRate) * 0.18f;
-        pitchRate *= grounded ? 0.70f : 0.965f;
-        rollRate *= grounded ? 0.70f : 0.965f;
-        yawRate *= grounded ? 0.76f : 0.972f;
+        pitchRate += (pitchTarget - pitchRate) * 0.28f;
+        rollRate += (rollTarget - rollRate) * 0.28f;
+        yawRate += (yawTarget - yawRate) * 0.24f;
+        pitchRate *= grounded ? 0.62f : 0.88f;
+        rollRate *= grounded ? 0.62f : 0.88f;
+        yawRate *= grounded ? 0.72f : 0.91f;
         orientation.rotateX((float)Math.toRadians(-pitchRate));
         orientation.rotateY((float)Math.toRadians(-yawRate));
         orientation.rotateZ((float)Math.toRadians(rollRate));
@@ -73,11 +89,6 @@ public final class HelicopterPhysics {
         Vec3d up = AircraftOrientation.up(orientation);
         Vec3d forward = AircraftOrientation.forward(orientation);
         Vec3d right = AircraftOrientation.right(orientation);
-        double horizontalSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-        float translationalLift = MathHelper.clamp((float)(horizontalSpeed - 0.12) / 0.65f, 0.0f, 1.0f) * 0.12f;
-        float groundEffect = nearGround && !grounded ? MathHelper.clamp(1.0f - (float)Math.abs(velocity.y) * 2.5f, 0.0f, 1.0f) * 0.11f : 0.0f;
-        float powerToWeight = MathHelper.clamp(definition.liftScale() * (float)Math.sqrt(definition.enginePower())
-            / Math.max(0.76f, weightFactor * 0.82f), 0.78f, 1.28f);
         float liftAcceleration = 0.145f * collective * rotorRpm * rotorRpm * powerToWeight
             * (1.0f + translationalLift + groundEffect);
 
@@ -89,15 +100,17 @@ public final class HelicopterPhysics {
         float vortex = approach(MathHelper.clamp(state.vortexAmount, 0.0f, 1.0f), vortexTarget,
             vortexTarget > state.vortexAmount ? 0.055f : 0.085f);
         liftAcceleration *= 1.0f - vortex * 0.58f;
-        velocity = velocity.add(up.multiply(liftAcceleration)).add(0.0, -GRAVITY, 0.0);
+        Vec3d rotorForce = new Vec3d(up.x * liftAcceleration * 0.48,
+            up.y * liftAcceleration, up.z * liftAcceleration * 0.48);
+        velocity = velocity.add(rotorForce).add(0.0, -GRAVITY, 0.0);
 
         // Fuselage drag and rotor damping. Local side-slip is damped more than
         // forward travel, giving GTA-like bank-and-go motion without ice skating.
         double forwardSpeed = velocity.dotProduct(forward);
         double sideSpeed = velocity.dotProduct(right);
-        velocity = velocity.subtract(right.multiply(sideSpeed * 0.052));
-        velocity = velocity.subtract(forward.multiply(forwardSpeed * 0.009));
-        velocity = new Vec3d(velocity.x * 0.994, velocity.y * 0.997, velocity.z * 0.994);
+        velocity = velocity.subtract(right.multiply(sideSpeed * 0.060));
+        velocity = velocity.subtract(forward.multiply(forwardSpeed * 0.014));
+        velocity = new Vec3d(velocity.x * 0.986, velocity.y * 0.960, velocity.z * 0.986);
         if (vortex > 0.2f) {
             pitchRate += (float)Math.sin(state.age * 0.73f) * vortex * 0.16f;
             rollRate += (float)Math.cos(state.age * 0.61f) * vortex * 0.18f;
@@ -107,8 +120,13 @@ public final class HelicopterPhysics {
             velocity = new Vec3d(velocity.x * 0.76, Math.max(0.0, velocity.y), velocity.z * 0.76);
             if (liftAcceleration < GRAVITY * 1.03f) velocity = new Vec3d(velocity.x, 0.0, velocity.z);
         }
-        double maxSpeed = 1.38 * MathHelper.clamp(1.0f / Math.max(0.78f, weightFactor), 0.72f, 1.12f);
-        if (velocity.lengthSquared() > maxSpeed * maxSpeed) velocity = velocity.normalize().multiply(maxSpeed);
+        double maximumHorizontalSpeed = 0.98 * MathHelper.clamp(1.0f / Math.max(0.86f, weightFactor * 0.72f), 0.78f, 1.08f);
+        double finalHorizontalSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+        if (finalHorizontalSpeed > maximumHorizontalSpeed) {
+            double scale = maximumHorizontalSpeed / finalHorizontalSpeed;
+            velocity = new Vec3d(velocity.x * scale, velocity.y, velocity.z * scale);
+        }
+        velocity = new Vec3d(velocity.x, MathHelper.clamp(velocity.y, -0.38, 0.28), velocity.z);
         if (!finite(velocity)) velocity = new Vec3d(0.0, -GRAVITY, 0.0);
 
         float speed = (float)velocity.length();

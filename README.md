@@ -75,7 +75,7 @@ Mouse rudder is active only while controlling a plane, so normal mouse actions a
 
 Planes preserve momentum: climbing trades speed for height, diving gains speed, banking turns the lift vector, sharp maneuvers add drag, and low-speed/high-angle flight stalls gradually. With no pilot, an airborne plane continues falling/gliding and eases its throttle toward idle.
 
-Engine audio adapts to the build: two or three marked wheels use the faster bike loop, four wheels use the car loop, and more than four use the heavy/monster-truck loop. Planes have a separate propeller-engine layer and quiet speed-based wind. Ground brakes, drifts, doors, and engine transitions use restrained one-shot sounds with smooth loop fades.
+Engine audio adapts to the build: two or three marked wheels use a fast bike engine, four wheels use the car profile, and more than four use the low heavy/monster-truck profile. Planes use a dedicated propeller drone and helicopters use a separate rotor-blade loop, alongside quiet speed-based wind. The local driver mix stays clearly audible without distance attenuation, while nearby observers hear normal 3D falloff. Ground braking and drifting use continuous tire layers that fade smoothly instead of repeatedly triggering short sounds; doors and engine transitions remain restrained one-shots.
 
 ## Presets and removal
 

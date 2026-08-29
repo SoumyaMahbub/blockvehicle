@@ -17,6 +17,7 @@ extends MovingSoundInstance {
     private final VehicleEntity vehicle;
     private final EngineProfile profile;
     private int fadeOutTicks = 0;
+    private float smoothedRpm = 0.0f;
 
     public VehicleEngineSoundInstance(VehicleEntity vehicle) {
         super(soundFor(profileFor(vehicle)), SoundCategory.NEUTRAL, SoundInstance.createRandom());
@@ -26,7 +27,9 @@ extends MovingSoundInstance {
         this.repeatDelay = 0;
         this.volume = 0.0f;
         this.pitch = this.profile.basePitch;
-        this.attenuationType = SoundInstance.AttenuationType.LINEAR;
+        MinecraftClient client = MinecraftClient.getInstance();
+        this.attenuationType = client.player != null && client.player.getVehicle() == vehicle
+            ? SoundInstance.AttenuationType.NONE : SoundInstance.AttenuationType.LINEAR;
         this.x = vehicle.getX();
         this.y = vehicle.getY();
         this.z = vehicle.getZ();
@@ -50,16 +53,19 @@ extends MovingSoundInstance {
             return;
         }
         this.fadeOutTicks = 0;
-        float speedFrac = this.vehicle.isAircraft() ? this.vehicle.getEngineRpm()
-            : Math.min(Math.abs(this.vehicle.getSpeed()) / 0.85f, 1.0f);
         boolean isThrottling = this.vehicle.isHelicopter() ? this.vehicle.getInputState().brake
             : this.vehicle.getInputState().forward || this.vehicle.getInputState().backward;
-        float targetPitch = this.profile.basePitch + speedFrac * this.profile.pitchRange
+        float rawRpm = this.vehicle.isAircraft() ? this.vehicle.getEngineRpm()
+            : MathHelper.clamp(Math.abs(this.vehicle.getSpeed()) / 0.85f
+                + (isThrottling ? 0.14f : 0.0f), 0.0f, 1.0f);
+        this.smoothedRpm = MathHelper.lerp(rawRpm > this.smoothedRpm ? 0.10f : 0.055f,
+            this.smoothedRpm, rawRpm);
+        float targetPitch = this.profile.basePitch + this.smoothedRpm * this.profile.pitchRange
             + (isThrottling ? this.profile.throttlePitch : 0.0f);
-        float targetVolume = this.profile.baseVolume + speedFrac * this.profile.volumeRange
-            + (isThrottling ? 0.018f : 0.0f);
-        this.pitch = MathHelper.lerp(0.075f, this.pitch, targetPitch);
-        this.volume = MathHelper.lerp(0.055f, this.volume, targetVolume);
+        float targetVolume = this.profile.baseVolume + this.smoothedRpm * this.profile.volumeRange
+            + (isThrottling ? 0.025f : 0.0f);
+        this.pitch = MathHelper.lerp(0.085f, this.pitch, targetPitch);
+        this.volume = MathHelper.lerp(0.075f, this.volume, targetVolume);
     }
 
     private boolean isTooFarAway() {
@@ -89,11 +95,11 @@ extends MovingSoundInstance {
     }
 
     private enum EngineProfile {
-        BIKE(0.94f, 0.56f, 0.07f, 0.085f, 0.13f),
-        CAR(0.82f, 0.43f, 0.05f, 0.095f, 0.13f),
-        HEAVY(0.72f, 0.31f, 0.035f, 0.11f, 0.14f),
-        PLANE(0.78f, 0.47f, 0.04f, 0.105f, 0.15f),
-        HELICOPTER(0.72f, 0.28f, 0.035f, 0.10f, 0.145f);
+        BIKE(0.94f, 0.48f, 0.055f, 0.20f, 0.18f),
+        CAR(0.80f, 0.40f, 0.045f, 0.21f, 0.18f),
+        HEAVY(0.69f, 0.29f, 0.030f, 0.23f, 0.19f),
+        PLANE(0.77f, 0.40f, 0.035f, 0.23f, 0.20f),
+        HELICOPTER(0.70f, 0.23f, 0.025f, 0.25f, 0.18f);
 
         private final float basePitch;
         private final float pitchRange;

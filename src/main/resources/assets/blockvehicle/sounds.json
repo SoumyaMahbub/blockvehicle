@@ -64,7 +64,7 @@
     "subtitle": "subtitles.blockvehicle.helicopter_rotor",
     "sounds": [
       {
-        "name": "blockvehicle:plane_engine",
+        "name": "blockvehicle:helicopter_rotor",
         "stream": false
       }
     ]

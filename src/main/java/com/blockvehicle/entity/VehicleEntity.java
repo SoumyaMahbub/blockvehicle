@@ -836,9 +836,9 @@ extends Entity {
             this.planeAirborneTicks = Math.min(10, this.planeAirborneTicks + 1);
             this.planeGroundContactTicks = Math.max(0, this.planeGroundContactTicks - 1);
         }
-        boolean wantsLift = this.inputState.brake && this.engineRpm > 0.62f;
+        boolean wantsLift = this.inputState.brake && this.engineRpm > 0.68f;
         boolean grounded = (this.planeGroundContactTicks >= 2 || wasGrounded && this.planeAirborneTicks < 2)
-            && !(wantsLift && this.throttle > 0.64f);
+            && !wantsLift;
         HelicopterPhysics.State state = new HelicopterPhysics.State(new Quaternionf(this.aircraftOrientation),
             this.planeVelocity, this.throttle, this.engineRpm, this.planePitchRate, this.planeRollRate,
             this.planeYawRate, this.stallAmount, this.planeFlightState, this.getYaw(), this.age);
@@ -1138,9 +1138,15 @@ extends Entity {
     private boolean hasTerrainBelow(double reach) {
         if (!this.isAircraft()) return false;
         PlaneDefinition definition = this.structure.getPlaneDefinition();
-        Vec3d[] points = new Vec3d[]{definition.centerOfMass(), definition.nose().blockCenter(),
-            definition.leftWingTip().blockCenter(), definition.rightWingTip().blockCenter()};
-        for (Vec3d point : points) {
+        // Helicopters intentionally have no wing-tip markers. Activation-time
+        // priority points already contain the appropriate extremities for each
+        // aircraft type (wings for planes, rotor hubs/underside for helicopters).
+        Vec3d center = definition.centerOfMass();
+        Vec3d worldCenter = this.transformStructurePoint(center);
+        if (this.hasSupportAt(worldCenter.x, worldCenter.y, worldCenter.z, reach)) return true;
+        for (PlaneDefinition.Point aircraftPoint : definition.priorityCollisionPoints()) {
+            if (aircraftPoint == null) continue;
+            Vec3d point = aircraftPoint.blockCenter();
             Vec3d worldPoint = this.transformStructurePoint(point);
             if (this.hasSupportAt(worldPoint.x, worldPoint.y, worldPoint.z, reach)) return true;
         }

@@ -80,9 +80,11 @@ public final class VehicleInputHandler {
             }
         }
         boolean pitchUp = ve.isPlane() && PLANE_PITCH_UP_KEY.isPressed();
-        boolean pitchDown = ve.isPlane() && PLANE_PITCH_DOWN_KEY.isPressed()
-            || ve.isHelicopter() && HELICOPTER_DESCEND_KEY.isPressed();
         long window = client.getWindow().getHandle();
+        boolean rawControl = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
+            || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+        boolean pitchDown = ve.isPlane() && PLANE_PITCH_DOWN_KEY.isPressed()
+            || ve.isHelicopter() && (HELICOPTER_DESCEND_KEY.isPressed() || rawControl);
         boolean yawLeft = ve.isAircraft() && GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
         boolean yawRight = ve.isAircraft() && GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
         boolean stunt = ve.isAircraft() && PLANE_STUNT_KEY.isPressed();

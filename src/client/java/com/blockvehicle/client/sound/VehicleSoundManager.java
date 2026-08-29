@@ -12,15 +12,13 @@ import net.minecraft.client.sound.SoundInstance;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.Entity;
 import net.minecraft.sound.SoundCategory;
-import net.minecraft.util.math.MathHelper;
 
 @Environment(value=EnvType.CLIENT)
 public final class VehicleSoundManager {
     private static final Map<Integer, EngineLoops> activeEngineLoops = new HashMap<>();
     private static final Map<Integer, Boolean> lastDriverState = new HashMap<Integer, Boolean>();
-    private static final Map<Integer, Boolean> lastBrakeState = new HashMap<Integer, Boolean>();
-    private static final Map<Integer, Integer> brakeCooldowns = new HashMap<Integer, Integer>();
-    private static final Map<Integer, Integer> skidCooldowns = new HashMap<Integer, Integer>();
+    private static final Map<Integer, VehicleTireSoundInstance> activeBrakeLoops = new HashMap<>();
+    private static final Map<Integer, VehicleTireSoundInstance> activeDriftLoops = new HashMap<>();
     private static final Map<Integer, PlaneWindSoundInstance> activeWindLoops = new HashMap<>();
     private static final Map<Integer, Integer> stallCooldowns = new HashMap<>();
     private static int scanCooldown = 0;
@@ -33,9 +31,8 @@ public final class VehicleSoundManager {
         if (world == null) {
             activeEngineLoops.clear();
             lastDriverState.clear();
-            lastBrakeState.clear();
-            brakeCooldowns.clear();
-            skidCooldowns.clear();
+            activeBrakeLoops.clear();
+            activeDriftLoops.clear();
             activeWindLoops.clear();
             stallCooldowns.clear();
             scanCooldown = 0;
@@ -46,7 +43,6 @@ public final class VehicleSoundManager {
         }
         scanCooldown = 0;
         for (Entity entity : world.getEntities()) {
-            boolean isHardTurning;
             if (!(entity instanceof VehicleEntity)) continue;
             VehicleEntity vehicle = (VehicleEntity)entity;
             int id2 = vehicle.getId();
@@ -58,14 +54,14 @@ public final class VehicleSoundManager {
             boolean hadDriver = lastDriverState.getOrDefault(id2, false);
             if (audible && hasDriver && !hadDriver) {
                 world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(), ModSounds.CAR_DOOR_CLOSE,
-                    SoundCategory.NEUTRAL, 0.16f, 1.0f, false);
+                    SoundCategory.NEUTRAL, 0.24f, 1.0f, false);
                 if (engineCapable) world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(),
-                    ModSounds.ENGINE_START, SoundCategory.NEUTRAL, 0.18f, 1.0f, false);
+                    ModSounds.ENGINE_START, SoundCategory.NEUTRAL, 0.30f, 1.0f, false);
             } else if (audible && !hasDriver && hadDriver) {
                 if (engineCapable) world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(),
-                    ModSounds.ENGINE_STOP, SoundCategory.NEUTRAL, 0.16f, 1.0f, false);
+                    ModSounds.ENGINE_STOP, SoundCategory.NEUTRAL, 0.27f, 1.0f, false);
                 world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(), ModSounds.CAR_DOOR_OPEN,
-                    SoundCategory.NEUTRAL, 0.15f, 1.0f, false);
+                    SoundCategory.NEUTRAL, 0.22f, 1.0f, false);
             }
             lastDriverState.put(id2, hasDriver);
             EngineLoops loops = activeEngineLoops.get(id2);
@@ -94,35 +90,26 @@ public final class VehicleSoundManager {
             if (!hasDriver || vehicle.isAircraft()) continue;
             VehicleInputState input = vehicle.getInputState();
             float speed = Math.abs(vehicle.getSpeed());
-            int brakeCd = Math.max(0, brakeCooldowns.getOrDefault(id2, 0) - 1);
             boolean isBraking = input.brake && speed > 0.045f;
-            boolean wasBraking = lastBrakeState.getOrDefault(id2, false);
-            if (audible && isBraking && (!wasBraking || brakeCd == 0)) {
-                float brakePitch = MathHelper.clamp(0.88f + speed * 0.38f, 0.88f, 1.18f);
-                world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(), ModSounds.BRAKE_SOFT,
-                    SoundCategory.NEUTRAL, 0.22f, brakePitch, false);
-                brakeCd = 9;
+            boolean isDrifting = vehicle.getDriftAmount() > 0.12f
+                || (input.left || input.right) && speed > 0.38f;
+            VehicleTireSoundInstance brake = activeBrakeLoops.get(id2);
+            if (audible && isBraking && (brake == null || brake.isDone())) {
+                brake = new VehicleTireSoundInstance(vehicle, VehicleTireSoundInstance.Mode.BRAKE);
+                activeBrakeLoops.put(id2, brake);
+                client.getSoundManager().play(brake);
             }
-            lastBrakeState.put(id2, isBraking);
-            brakeCooldowns.put(id2, brakeCd);
-            int cd = skidCooldowns.getOrDefault(id2, 0);
-            if (cd > 0) {
-                skidCooldowns.put(id2, cd - 1);
-                continue;
+            VehicleTireSoundInstance drift = activeDriftLoops.get(id2);
+            if (audible && isDrifting && (drift == null || drift.isDone())) {
+                drift = new VehicleTireSoundInstance(vehicle, VehicleTireSoundInstance.Mode.DRIFT);
+                activeDriftLoops.put(id2, drift);
+                client.getSoundManager().play(drift);
             }
-            boolean isDrifting = vehicle.getDriftAmount() > 0.22f;
-            isHardTurning = (input.left || input.right) && speed > 0.42f;
-            if (!audible || !isDrifting && !isHardTurning) continue;
-            float pitch = 0.95f + speed * 0.5f;
-            float vol = Math.min(0.18f, 0.085f + speed * 0.11f + vehicle.getDriftAmount() * 0.04f);
-            world.playSound(vehicle.getX(), vehicle.getY(), vehicle.getZ(), ModSounds.TIRE_SKID, SoundCategory.NEUTRAL, vol, pitch, false);
-            skidCooldowns.put(id2, 6);
         }
         lastDriverState.keySet().removeIf(id -> world.getEntityById(id.intValue()) == null);
-        lastBrakeState.keySet().removeIf(id -> world.getEntityById(id.intValue()) == null);
-        brakeCooldowns.keySet().removeIf(id -> world.getEntityById(id.intValue()) == null);
         activeEngineLoops.entrySet().removeIf(entry -> world.getEntityById(entry.getKey()) == null || entry.getValue().isDone());
-        skidCooldowns.keySet().removeIf(id -> world.getEntityById(id.intValue()) == null);
+        activeBrakeLoops.entrySet().removeIf(entry -> world.getEntityById(entry.getKey()) == null || entry.getValue().isDone());
+        activeDriftLoops.entrySet().removeIf(entry -> world.getEntityById(entry.getKey()) == null || entry.getValue().isDone());
         activeWindLoops.entrySet().removeIf(entry -> world.getEntityById(entry.getKey()) == null || entry.getValue().isDone());
         stallCooldowns.keySet().removeIf(id -> world.getEntityById(id.intValue()) == null);
     }
